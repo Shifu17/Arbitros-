@@ -4,7 +4,10 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from arbitros.db.migrar import migrar
+from alembic import command
+
+from arbitros.db.database import Database
+from arbitros.db.migrar import configuracion_alembic, migrar, necesita_migrar, revision_actual
 from arbitros.services.arbitros import ArbitroService, DatosArbitro
 from arbitros.services.errores import ErrorValidacion
 from arbitros.services.respaldos import MAX_AUTOMATICOS, RespaldoService
@@ -70,3 +73,13 @@ def test_poda_automaticos(svc):
         svc.crear(prefijo="auto_")
     svc._podar_automaticos()
     assert len([r for r in svc.listar() if r.automatico]) == MAX_AUTOMATICOS
+
+
+def test_necesita_migrar(tmp_path):
+    db = Database.desde_archivo(tmp_path / "x.db")
+    assert revision_actual(db) is None and not necesita_migrar(db)  # instalación nueva
+    command.upgrade(configuracion_alembic(db), "0001")
+    assert necesita_migrar(db)
+    migrar(db)
+    assert not necesita_migrar(db)
+    db.cerrar()

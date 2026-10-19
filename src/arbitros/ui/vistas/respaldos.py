@@ -5,7 +5,12 @@ from pathlib import Path
 import flet as ft
 
 from arbitros.services.errores import ErrorValidacion
-from arbitros.services.respaldos import DIAS_ENTRE_AUTOMATICOS, PREFIJO_PREVIO, InfoRespaldo
+from arbitros.services.respaldos import (
+    DIAS_ENTRE_AUTOMATICOS,
+    PREFIJO_ACTUALIZACION,
+    PREFIJO_PREVIO,
+    InfoRespaldo,
+)
 from arbitros.ui.comunes import avisar, confirmar, encabezado, estado_vacio, fecha_legible, hace_cuanto, tarjeta
 
 log = logging.getLogger(__name__)
@@ -81,6 +86,8 @@ class VistaRespaldos:
     def _fila(self, r: InfoRespaldo) -> ft.Control:
         if r.ruta.name.startswith(PREFIJO_PREVIO):
             tipo = "Antes de restaurar"
+        elif r.ruta.name.startswith(PREFIJO_ACTUALIZACION):
+            tipo = "Antes de actualizar la app"
         else:
             tipo = "Automático" if r.automatico else "Manual"
         restaurar = None

@@ -1,5 +1,4 @@
 import re
-import unicodedata
 from dataclasses import dataclass
 
 from sqlalchemy import func, select
@@ -8,6 +7,7 @@ from arbitros.config import LADA_PAIS
 from arbitros.db.database import Database
 from arbitros.db.models import Arbitro
 from arbitros.services.errores import ErrorValidacion
+from arbitros.services.texto import sin_acentos
 
 FILTRO_ACTIVOS = "activos"
 FILTRO_INACTIVOS = "inactivos"
@@ -47,11 +47,6 @@ def enlace_whatsapp(telefono: str) -> str:
     return f"https://wa.me/{digitos}"
 
 
-def sin_acentos(texto: str) -> str:
-    descompuesto = unicodedata.normalize("NFD", texto.casefold())
-    return "".join(c for c in descompuesto if unicodedata.category(c) != "Mn")
-
-
 def _limpiar(texto: str) -> str | None:
     texto = (texto or "").strip()
     return texto or None
@@ -62,13 +57,13 @@ class ArbitroService:
         self.db = db
 
     def listar(self, busqueda: str = "", filtro: str = FILTRO_ACTIVOS) -> list[Arbitro]:
-        consulta = select(Arbitro).order_by(func.lower(Arbitro.nombre))
+        consulta = select(Arbitro)
         if filtro == FILTRO_ACTIVOS:
             consulta = consulta.where(Arbitro.activo.is_(True))
         elif filtro == FILTRO_INACTIVOS:
             consulta = consulta.where(Arbitro.activo.is_(False))
         with self.db.sesion() as s:
-            arbitros = list(s.scalars(consulta))
+            arbitros = sorted(s.scalars(consulta), key=lambda a: sin_acentos(a.nombre))
         # Filtrado en Python: ignora acentos y mayúsculas ("perez" encuentra "Pérez")
         busqueda = sin_acentos(busqueda.strip())
         if not busqueda:

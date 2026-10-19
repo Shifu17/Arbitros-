@@ -16,6 +16,8 @@ from arbitros.db.models import Usuario
 from arbitros.services.arbitros import ArbitroService
 from arbitros.services.auth import AuthService
 from arbitros.services.configuracion import ConfiguracionService
+from arbitros.services.jornadas import JornadaService
+from arbitros.services.ligas import LigaService
 from arbitros.services.respaldos import RespaldoService
 
 log = logging.getLogger(__name__)
@@ -32,7 +34,11 @@ class App:
         self.auth = AuthService(db)
         self.arbitros = ArbitroService(db)
         self.respaldos = RespaldoService(db, rutas)
+        self.ligas = LigaService(db)
+        self.jornadas = JornadaService(db)
         self.usuario: Usuario | None = None
+        # Última liga/jornada vista, para que al cambiar de sección no se pierda la selección
+        self.seleccion: dict[str, int | None] = {"liga_id": None, "jornada_id": None}
         # Servicios de Flet: deben crearse dentro de main() para registrarse en la página
         self.selector_archivos = ft.FilePicker()
         self.portapapeles = ft.Clipboard()
@@ -54,6 +60,7 @@ class App:
         from arbitros.ui.vistas.acceso import pantalla_login
 
         self.usuario = None
+        self.seleccion = {"liga_id": None, "jornada_id": None}
         self._mostrar(pantalla_login(self, mensaje))
 
     def ir_a_configuracion_inicial(self) -> None:
@@ -98,6 +105,8 @@ class App:
         p.window.min_width = 960
         p.window.min_height = 620
         p.padding = 0
+        espanol = ft.Locale("es", "MX")
+        p.locale_configuration = ft.LocaleConfiguration(supported_locales=[espanol], current_locale=espanol)
         p.theme = ft.Theme(color_scheme_seed=ft.Colors.GREEN_700)
         p.dark_theme = ft.Theme(color_scheme_seed=ft.Colors.GREEN_700)
         oscuro = self.config.obtener(CLAVE_TEMA) == "oscuro"

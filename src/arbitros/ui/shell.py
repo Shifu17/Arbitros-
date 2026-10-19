@@ -12,6 +12,8 @@ import flet as ft
 
 from arbitros.ui.vistas import arbitros as vista_arbitros
 from arbitros.ui.vistas import inicio as vista_inicio
+from arbitros.ui.vistas import jornadas as vista_jornadas
+from arbitros.ui.vistas import ligas as vista_ligas
 from arbitros.ui.vistas import respaldos as vista_respaldos
 from arbitros.ui.vistas import usuarios as vista_usuarios
 from arbitros.ui.vistas.proximamente import proximamente
@@ -32,13 +34,10 @@ class Seccion:
 SECCIONES = [
     Seccion("inicio", "Inicio", ft.Icons.HOME_OUTLINED, ft.Icons.HOME, vista_inicio.construir),
     Seccion("arbitros", "Árbitros", ft.Icons.PEOPLE_OUTLINE, ft.Icons.PEOPLE, vista_arbitros.construir),
+    Seccion("ligas", "Ligas y torneos", ft.Icons.EMOJI_EVENTS_OUTLINED, ft.Icons.EMOJI_EVENTS, vista_ligas.construir),
     Seccion(
-        "ligas", "Ligas y torneos", ft.Icons.EMOJI_EVENTS_OUTLINED, ft.Icons.EMOJI_EVENTS, fase=2,
-        descripcion="Registra tus ligas y torneos cortos, con sus equipos, campos y tarifas.",
-    ),
-    Seccion(
-        "jornadas", "Jornadas y partidos", ft.Icons.CALENDAR_MONTH_OUTLINED, ft.Icons.CALENDAR_MONTH, fase=2,
-        descripcion="Carga cada jornada eligiendo equipos y campos de una lista.",
+        "jornadas", "Jornadas y partidos", ft.Icons.CALENDAR_MONTH_OUTLINED, ft.Icons.CALENDAR_MONTH,
+        vista_jornadas.construir,
     ),
     Seccion(
         "disponibilidad", "Disponibilidad", ft.Icons.EVENT_AVAILABLE_OUTLINED, ft.Icons.EVENT_AVAILABLE, fase=3,

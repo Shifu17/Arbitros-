@@ -27,6 +27,7 @@ from arbitros.services.errores import ErrorValidacion
 PREFIJO_MANUAL = "respaldo_"
 PREFIJO_AUTO = "auto_"
 PREFIJO_PREVIO = "antes_de_restaurar_"
+PREFIJO_ACTUALIZACION = "antes_de_actualizar_"
 MAX_AUTOMATICOS = 10
 DIAS_ENTRE_AUTOMATICOS = 7
 _FORMATO_FECHA = "%Y%m%d_%H%M%S"
@@ -174,7 +175,7 @@ def _ruta_permitida(nombre: str) -> bool:
 
 
 def _fecha_de_nombre(nombre: str) -> datetime | None:
-    for prefijo in (PREFIJO_MANUAL, PREFIJO_AUTO, PREFIJO_PREVIO):
+    for prefijo in (PREFIJO_MANUAL, PREFIJO_AUTO, PREFIJO_PREVIO, PREFIJO_ACTUALIZACION):
         if nombre.startswith(prefijo):
             try:
                 return datetime.strptime(nombre[len(prefijo):len(prefijo) + 15], _FORMATO_FECHA)

@@ -9,3 +9,11 @@ class ErrorValidacion(Exception):
 
 class ErrorAutenticacion(Exception):
     pass
+
+
+class AvisosPendientes(Exception):
+    """Los datos son válidos pero hay advertencias; se puede guardar repitiendo con forzar=True."""
+
+    def __init__(self, avisos: list[str]):
+        super().__init__("; ".join(avisos))
+        self.avisos = avisos

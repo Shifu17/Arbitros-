@@ -63,7 +63,7 @@ y la app funciona sin internet (salvo buscar actualizaciones y abrir WhatsApp).
 | Fase | Contenido | Estado |
 |---|---|---|
 | 1 | Estructura, base de datos, login/roles, árbitros, respaldos | ✅ |
-| 2 | Ligas y torneos, equipos, campos, tarifas, jornadas y partidos | Pendiente |
+| 2 | Ligas y torneos, equipos, campos, tarifas, jornadas y partidos | ✅ |
 | 3 | Disponibilidad y asignación con avisos de conflicto | Pendiente |
 | 4 | Rol para WhatsApp (texto e imagen) | Pendiente |
 | 5 | Pagos, cédulas y reportes | Pendiente |

@@ -40,6 +40,8 @@ def _paso(numero: int, texto: str, hecho: bool, accion: ft.Control | None = None
 
 def construir(app, shell) -> ft.Control:
     activos = app.arbitros.contar_activos()
+    ligas = app.ligas.listar()
+    hay_partidos = any(j.partidos for r in ligas for j in app.jornadas.listar(r.liga.id))
     ultimo = app.respaldos.ultimo()
     respaldo_valor = hace_cuanto(ultimo.fecha).capitalize() if ultimo else "Ninguno"
     respaldo_detalle = fecha_legible(ultimo.fecha) if ultimo else "Crea uno en Respaldos"
@@ -51,10 +53,21 @@ def construir(app, shell) -> ft.Control:
             activos > 0,
             ft.TextButton("Ir a Árbitros", on_click=lambda _: shell.ir_a("arbitros")),
         ),
-        _paso(2, "Da de alta tus ligas, torneos, equipos y campos (fase 2)", False),
-        _paso(3, "Carga la jornada y asigna árbitros según su disponibilidad (fases 2 y 3)", False),
-        _paso(4, "Genera el rol y compártelo por WhatsApp (fase 4)", False),
-        _paso(5, "Registra pagos y cédulas (fase 5)", False),
+        _paso(
+            2,
+            "Da de alta tus ligas o torneos, con sus equipos y campos",
+            any(r.equipos and r.campos for r in ligas),
+            ft.TextButton("Ir a Ligas", on_click=lambda _: shell.ir_a("ligas")),
+        ),
+        _paso(
+            3,
+            "Carga la jornada con sus partidos",
+            hay_partidos,
+            ft.TextButton("Ir a Jornadas", on_click=lambda _: shell.ir_a("jornadas")),
+        ),
+        _paso(4, "Marca la disponibilidad y asigna árbitros (fase 3)", False),
+        _paso(5, "Genera el rol y compártelo por WhatsApp (fase 4)", False),
+        _paso(6, "Registra pagos y cédulas (fase 5)", False),
     ]
 
     return ft.Column(
@@ -63,6 +76,7 @@ def construir(app, shell) -> ft.Control:
             ft.Row(
                 [
                     _dato(ft.Icons.PEOPLE, "Árbitros activos", str(activos)),
+                    _dato(ft.Icons.EMOJI_EVENTS, "Ligas y torneos activos", str(len(ligas))),
                     _dato(ft.Icons.BACKUP, "Último respaldo", respaldo_valor, respaldo_detalle),
                     _dato(ft.Icons.INFO_OUTLINE, "Versión", __version__),
                 ],
