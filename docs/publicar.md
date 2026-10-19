@@ -7,6 +7,9 @@ descargar releases sin contraseña desde repositorios públicos.
 
 ## Una sola vez
 
+> Ya hecho en la computadora de desarrollo (Inno Setup, GitHub CLI con la cuenta Shifu17 y el
+> repositorio público `Shifu17/arbitros-releases`). Solo repetir en otra computadora.
+
 1. Instalar herramientas:
    ```powershell
    winget install JRSoftware.InnoSetup
