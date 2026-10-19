@@ -24,10 +24,34 @@ def configuracion_alembic(db: Database) -> Config:
 
 
 def migrar(db: Database) -> None:
+    """Lleva la base de datos a la última versión, todo o nada.
+
+    En SQLite, cambiar una columna obliga a recrear la tabla (copiar, borrar, renombrar);
+    con las llaves foráneas activas eso falla si otras tablas la referencian (p. ej. partidos →
+    equipos). Por eso se desactivan durante la migración y al final se verifica que todo
+    siga consistente antes de confirmar.
+    """
     cfg = configuracion_alembic(db)
-    with db.engine.begin() as conexion:
-        cfg.attributes["connection"] = conexion
-        command.upgrade(cfg, "head")
+    with db.engine.connect() as conexion:
+        crudo = conexion.connection.dbapi_connection
+        crudo.execute("PRAGMA foreign_keys=OFF")  # solo tiene efecto fuera de una transacción
+        try:
+            with conexion.begin():
+                _limpiar_tablas_temporales(conexion)
+                cfg.attributes["connection"] = conexion
+                command.upgrade(cfg, "head")
+                rotas = conexion.exec_driver_sql("PRAGMA foreign_key_check").fetchall()
+                if rotas:
+                    raise RuntimeError(f"La migración dejó referencias rotas: {rotas[:5]}")
+        finally:
+            crudo.execute("PRAGMA foreign_keys=ON")
+
+
+def _limpiar_tablas_temporales(conexion) -> None:
+    """Borra restos de una migración interrumpida en versiones anteriores de la app."""
+    nombres = conexion.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table'").scalars()
+    for nombre in [n for n in nombres if n.startswith("_alembic_tmp_")]:
+        conexion.exec_driver_sql(f'DROP TABLE "{nombre}"')
 
 
 def revision_actual(db: Database) -> str | None:

@@ -6,10 +6,18 @@ from sqlalchemy import Engine, create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 
 
-def _activar_foreign_keys(dbapi_conn, _record):
+def _al_conectar(dbapi_conn, _record):
+    # El driver sqlite3 de Python no abre transacción antes de CREATE/ALTER/DROP, así que
+    # una migración fallida podía quedar a medias. Se desactiva su manejo automático y
+    # SQLAlchemy emite BEGIN explícito (receta oficial de SQLAlchemy para SQLite).
+    dbapi_conn.isolation_level = None
     cursor = dbapi_conn.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
     cursor.close()
+
+
+def _al_iniciar_transaccion(conexion):
+    conexion.exec_driver_sql("BEGIN")
 
 
 class Database:
@@ -18,7 +26,8 @@ class Database:
     def __init__(self, url: str):
         self.url = url
         self.engine: Engine = create_engine(url)
-        event.listen(self.engine, "connect", _activar_foreign_keys)
+        event.listen(self.engine, "connect", _al_conectar)
+        event.listen(self.engine, "begin", _al_iniciar_transaccion)
         self._fabrica = sessionmaker(self.engine, expire_on_commit=False)
 
     @classmethod
