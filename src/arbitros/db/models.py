@@ -204,3 +204,47 @@ class Partido(Base):
     @property
     def se_juega(self) -> bool:
         return self.estado not in ESTADOS_SIN_JUEGO
+
+
+DISP_TODO_EL_DIA = "todo_el_dia"
+DISP_HORARIO = "horario"
+DISP_NO_DISPONIBLE = "no_disponible"
+TIPOS_DISPONIBILIDAD = {
+    DISP_TODO_EL_DIA: "Todo el día",
+    DISP_HORARIO: "Solo de cierta hora",
+    DISP_NO_DISPONIBLE: "No disponible",
+}
+
+
+class Disponibilidad(Base):
+    """Lo que un árbitro dijo para un día. Sin fila = no ha dicho nada (sin registrar)."""
+
+    __tablename__ = "disponibilidad"
+    __table_args__ = (UniqueConstraint("arbitro_id", "fecha"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    arbitro_id: Mapped[int] = mapped_column(ForeignKey("arbitros.id", ondelete="CASCADE"), index=True)
+    fecha: Mapped[date] = mapped_column(Date, index=True)
+    tipo: Mapped[str] = mapped_column(String(20))
+    desde: Mapped[time | None] = mapped_column(Time)  # solo con DISP_HORARIO
+    hasta: Mapped[time | None] = mapped_column(Time)
+    nota: Mapped[str | None] = mapped_column(String(200))
+
+
+class Asignacion(Base):
+    """Árbitro asignado a una posición de un partido. Aquí se colgarán los pagos (fase 5)."""
+
+    __tablename__ = "asignaciones"
+    __table_args__ = (
+        UniqueConstraint("partido_id", "posicion"),
+        UniqueConstraint("partido_id", "arbitro_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    partido_id: Mapped[int] = mapped_column(ForeignKey("partidos.id", ondelete="CASCADE"), index=True)
+    arbitro_id: Mapped[int] = mapped_column(ForeignKey("arbitros.id", ondelete="RESTRICT"), index=True)
+    posicion: Mapped[str] = mapped_column(String(20))
+    creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    arbitro: Mapped["Arbitro"] = relationship(lazy="joined")
+    partido: Mapped["Partido"] = relationship(lazy="joined")
