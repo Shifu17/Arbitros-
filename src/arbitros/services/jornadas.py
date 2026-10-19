@@ -16,7 +16,9 @@ from arbitros.db.models import (
     ESTADO_PROGRAMADO,
     ESTADOS_PARTIDO,
     ESTADOS_SIN_JUEGO,
+    Asignacion,
     Campo,
+    Categoria,
     Equipo,
     Jornada,
     Liga,
@@ -46,6 +48,7 @@ class DatosPartido:
     estado: str = ESTADO_PROGRAMADO
     notas: str = ""
     motivo_estado: str = ""
+    categoria_id: int | None = None
 
 
 def etiqueta_jornada(liga: Liga, jornada: Jornada) -> str:
@@ -226,6 +229,9 @@ class JornadaService:
             jornada = s.get(Jornada, partido.jornada_id)
             self._validar_partido(s, jornada, datos, partido_id, forzar)
             self._aplicar(partido, datos)
+            # Si se quitó una posición (p. ej. ya no lleva cuarto árbitro), se libera su asignación
+            s.execute(delete(Asignacion).where(
+                Asignacion.partido_id == partido_id, Asignacion.posicion.not_in(partido.lista_posiciones)))
         return self.obtener_partido(partido_id)
 
     def cambiar_estado(self, partido_ids: list[int], estado: str, motivo: str = "") -> int:
@@ -249,6 +255,7 @@ class JornadaService:
 
     @staticmethod
     def _aplicar(partido: Partido, d: DatosPartido) -> None:
+        partido.categoria_id = d.categoria_id
         partido.fecha = d.fecha
         partido.hora = d.hora
         partido.local_id = d.local_id
@@ -277,8 +284,14 @@ class JornadaService:
             errores["posiciones"] = "Marca al menos una posición"
         if d.estado not in ESTADOS_PARTIDO:
             errores["estado"] = "Estado inválido"
+        categorias_liga = s.scalar(
+            select(func.count(Categoria.id)).where(Categoria.liga_id == jornada.liga_id, Categoria.activo.is_(True))
+        )
+        if categorias_liga and not d.categoria_id:
+            errores["categoria"] = "Elige la categoría"
         for clave, modelo, item_id in (
             ("local", Equipo, d.local_id), ("visitante", Equipo, d.visitante_id), ("campo", Campo, d.campo_id),
+            ("categoria", Categoria, d.categoria_id),
         ):
             if item_id and clave not in errores:
                 item = s.get(modelo, item_id)
@@ -307,9 +320,12 @@ class JornadaService:
         otros = list(s.scalars(otros).unique())
 
         for equipo_id in (d.local_id, d.visitante_id):
+            equipo = s.get(Equipo, equipo_id)
             if any(equipo_id in (p.local_id, p.visitante_id) for p in otros):
-                nombre = s.get(Equipo, equipo_id).nombre
-                avisos.append(f"{nombre} ya tiene otro partido en esta jornada.")
+                avisos.append(f"{equipo.nombre} ya tiene otro partido en esta jornada.")
+            if d.categoria_id and equipo.categoria_id and equipo.categoria_id != d.categoria_id:
+                otra = s.get(Categoria, equipo.categoria_id).nombre
+                avisos.append(f"{equipo.nombre} es de la categoría {otra}.")
 
         # Choques de campo: se revisan todos los partidos de esa fecha en el campo, de cualquier jornada
         mismo_campo = select(Partido).where(

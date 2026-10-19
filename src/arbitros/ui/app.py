@@ -15,7 +15,9 @@ from arbitros.db.migrar import migrar
 from arbitros.db.models import Usuario
 from arbitros.services.arbitros import ArbitroService
 from arbitros.services.auth import AuthService
+from arbitros.services.asignaciones import AsignacionService
 from arbitros.services.configuracion import ConfiguracionService
+from arbitros.services.disponibilidad import DisponibilidadService
 from arbitros.services.jornadas import JornadaService
 from arbitros.services.ligas import LigaService
 from arbitros.services.respaldos import RespaldoService
@@ -36,9 +38,11 @@ class App:
         self.respaldos = RespaldoService(db, rutas)
         self.ligas = LigaService(db)
         self.jornadas = JornadaService(db)
+        self.disponibilidad = DisponibilidadService(db)
+        self.asignaciones = AsignacionService(db, self.config)
         self.usuario: Usuario | None = None
         # Última liga/jornada vista, para que al cambiar de sección no se pierda la selección
-        self.seleccion: dict[str, int | None] = {"liga_id": None, "jornada_id": None}
+        self.seleccion: dict = {"liga_id": None, "jornada_id": None}
         # Servicios de Flet: deben crearse dentro de main() para registrarse en la página
         self.selector_archivos = ft.FilePicker()
         self.portapapeles = ft.Clipboard()

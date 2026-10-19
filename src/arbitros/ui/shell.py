@@ -11,6 +11,7 @@ from typing import Callable
 import flet as ft
 
 from arbitros.ui.vistas import arbitros as vista_arbitros
+from arbitros.ui.vistas import disponibilidad as vista_disponibilidad
 from arbitros.ui.vistas import inicio as vista_inicio
 from arbitros.ui.vistas import jornadas as vista_jornadas
 from arbitros.ui.vistas import ligas as vista_ligas
@@ -40,8 +41,8 @@ SECCIONES = [
         vista_jornadas.construir,
     ),
     Seccion(
-        "disponibilidad", "Disponibilidad", ft.Icons.EVENT_AVAILABLE_OUTLINED, ft.Icons.EVENT_AVAILABLE, fase=3,
-        descripcion="Marca quién puede trabajar cada día (todo el día o en un horario) y asigna árbitros con avisos de choques.",
+        "disponibilidad", "Disponibilidad", ft.Icons.EVENT_AVAILABLE_OUTLINED, ft.Icons.EVENT_AVAILABLE,
+        vista_disponibilidad.construir,
     ),
     Seccion(
         "rol", "Rol para WhatsApp", ft.Icons.SEND_OUTLINED, ft.Icons.SEND, fase=4,

@@ -14,7 +14,9 @@ from arbitros.db.models import (
     Liga,
     Partido,
 )
+from arbitros.services.asignaciones import CONFLICTO, LIBRE, NO_DISPONIBLE, SIN_REGISTRAR, Candidato
 from arbitros.services.errores import AvisosPendientes, ErrorValidacion
+from arbitros.services.texto import sin_acentos
 from arbitros.services.jornadas import DatosPartido, ResumenJornada, etiqueta_jornada
 from arbitros.ui.comunes import (
     ANCHO_DIALOGO,
@@ -54,7 +56,8 @@ def etiqueta_estado(estado: str) -> ft.Control:
 
 def describir_partido(p: Partido) -> str:
     campo = p.campo.nombre if p.campo else "sin campo"
-    return f"{fecha_corta(p.fecha)} {p.hora:%H:%M} · {campo} · {p.local.nombre} vs {p.visitante.nombre}"
+    categoria = f" ({p.categoria.nombre})" if p.categoria else ""
+    return f"{fecha_corta(p.fecha)} {p.hora:%H:%M} · {campo} · {p.local.nombre} vs {p.visitante.nombre}{categoria}"
 
 
 def construir(app, shell) -> ft.Control:
@@ -184,10 +187,20 @@ class VistaJornadas:
         resumen = next(r for r in self.jornadas if r.jornada.id == jornada_id)
         j = resumen.jornada
         partidos = self.app.jornadas.listar_partidos(j.id)
+        self.partidos = partidos
+        self.asignaciones = self.app.asignaciones.de_jornada(j.id)
+        self.problemas = self.app.asignaciones.revisar_jornada(j.id)
+        faltan = self.app.asignaciones.faltantes(partidos, self.asignaciones)
         acciones = []
         if self.app.es_admin:
             acciones = [
                 ft.FilledButton("Agregar partido", icon=ft.Icons.ADD, on_click=lambda _: self.dialogo_partido(j.id)),
+                ft.FilledTonalButton(
+                    f"Asignar faltantes ({faltan})",
+                    icon=ft.Icons.PERSON_ADD_ALT_1,
+                    on_click=lambda _: self._asignar_siguiente_faltante(),
+                    visible=faltan > 0,
+                ),
                 ft.OutlinedButton(
                     "Cancelar partidos…",
                     icon=ft.Icons.EVENT_BUSY,
@@ -213,7 +226,8 @@ class VistaJornadas:
         self.detalle.content = ft.Column(
             [
                 ft.Row([ft.Column(textos, spacing=2, expand=True), *acciones]),
-                ft.Text(self._resumen_partidos(partidos), color=ft.Colors.ON_SURFACE_VARIANT),
+                ft.Row([ft.Text(self._resumen_partidos(partidos), color=ft.Colors.ON_SURFACE_VARIANT),
+                        *self._resumen_asignacion(partidos, faltan)], spacing=16, wrap=True),
                 tabla,
             ],
             spacing=12,
@@ -254,6 +268,7 @@ class VistaJornadas:
         return ft.PopupMenuButton(items=items, icon=ft.Icons.MORE_VERT, tooltip="Acciones")
 
     def _tabla_partidos(self, partidos: list[Partido]) -> ft.Control:
+        con_categoria = any(p.categoria_id for p in partidos)
         filas = []
         for p in partidos:
             # Los partidos que no se juegan se ven tachados y atenuados
@@ -269,13 +284,10 @@ class VistaJornadas:
                         ft.DataCell(ft.Text(fecha_corta(p.fecha), style=estilo, color=color)),
                         ft.DataCell(ft.Text(p.hora.strftime("%H:%M"), weight=ft.FontWeight.W_500, style=estilo, color=color)),
                         ft.DataCell(ft.Text(p.campo.nombre if p.campo else "—", style=estilo, color=color)),
+                        *([ft.DataCell(ft.Text(p.categoria.nombre if p.categoria else "—", color=color))]
+                          if con_categoria else []),
                         ft.DataCell(ft.Column(textos, spacing=0, tight=True, alignment=ft.MainAxisAlignment.CENTER)),
-                        ft.DataCell(
-                            ft.Text(
-                                " · ".join(POSICIONES_CORTAS[x] for x in p.lista_posiciones) if p.se_juega else "—",
-                                tooltip=", ".join(POSICIONES[x] for x in p.lista_posiciones),
-                            )
-                        ),
+                        ft.DataCell(self._celda_arbitros(p)),
                         ft.DataCell(etiqueta_estado(p.estado)),
                         ft.DataCell(self._menu_partido(p)),
                     ]
@@ -286,15 +298,18 @@ class VistaJornadas:
                 ft.DataColumn(ft.Text("Fecha")),
                 ft.DataColumn(ft.Text("Hora")),
                 ft.DataColumn(ft.Text("Campo")),
+                *([ft.DataColumn(ft.Text("Categoría"))] if con_categoria else []),
                 ft.DataColumn(ft.Text("Partido")),
-                ft.DataColumn(ft.Text("Árbitros"), tooltip="C = Central, A1/A2 = Asistentes, 4° = Cuarto árbitro"),
+                ft.DataColumn(ft.Text("Árbitros"),
+                              tooltip="C = Central, A1/A2 = Asistentes, 4° = Cuarto árbitro. Clic para asignar."),
                 ft.DataColumn(ft.Text("Estado")),
                 ft.DataColumn(ft.Text("")),
             ],
             rows=filas,
             heading_row_color=ft.Colors.SURFACE_CONTAINER_HIGHEST,
             column_spacing=24,
-            data_row_max_height=64,
+            data_row_min_height=56,
+            data_row_max_height=150,
         )
 
     # --- Diálogos de jornada --------------------------------------------
@@ -393,17 +408,40 @@ class VistaJornadas:
             return [ft.DropdownOption(key=str(i.id), text=i.nombre) for i in items]
 
         base = partido or previo
-        local = ft.Dropdown(label="Equipo local *", options=opciones(equipos), enable_filter=True, editable=True,
-                            value=str(partido.local_id) if partido else None, expand=True)
-        visitante = ft.Dropdown(label="Equipo visitante *", options=opciones(equipos), enable_filter=True, editable=True,
-                                value=str(partido.visitante_id) if partido else None, expand=True)
+        categorias = self.app.ligas.categorias.listar(self.liga.id, solo_activos=True)
+        if partido and partido.categoria and all(c.id != partido.categoria_id for c in categorias):
+            categorias.append(partido.categoria)
+        categoria_inicial = base.categoria_id if base else None
+        categoria = ft.Dropdown(
+            label="Categoría *",
+            options=opciones(categorias),
+            value=str(categoria_inicial) if categoria_inicial else (str(categorias[0].id) if len(categorias) == 1 else None),
+            visible=bool(categorias),
+            width=ANCHO_DIALOGO + 160,
+        )
+
+        def equipos_de(categoria_id: int | None) -> list:
+            """Equipos de la categoría elegida (más los que no tienen categoría)."""
+            if not categoria_id:
+                return equipos
+            return [e for e in equipos if e.categoria_id in (categoria_id, None)]
+
+        cat_actual = int(categoria.value) if categoria.value else None
+        local = ft.Dropdown(label="Equipo local *", options=opciones(equipos_de(cat_actual)), enable_filter=True,
+                            editable=True, value=str(partido.local_id) if partido else None, expand=True)
+        visitante = ft.Dropdown(label="Equipo visitante *", options=opciones(equipos_de(cat_actual)), enable_filter=True,
+                                editable=True, value=str(partido.visitante_id) if partido else None, expand=True)
         campo = ft.Dropdown(label="Campo *", options=opciones(campos_liga),
                             value=str(base.campo_id) if base and base.campo_id else (str(campos_liga[0].id) if len(campos_liga) == 1 else None),
                             expand=True)
         fecha = CampoFecha(self.page, "Fecha *", base.fecha if base else jornada.fecha_inicio, expand=True)
         hora = CampoHora(self.page, "Hora *", base.hora if base else None, width=170)
+        def posiciones_defecto(categoria_id: int | None) -> list[str]:
+            cat = next((c for c in categorias if c.id == categoria_id), None)
+            return self.app.ligas.posiciones_para(self.liga, cat)
+
         posiciones, casillas, error_pos = selector_posiciones(
-            partido.lista_posiciones if partido else self.liga.lista_posiciones
+            partido.lista_posiciones if partido else posiciones_defecto(cat_actual)
         )
         estado = ft.Dropdown(
             label="Estado",
@@ -422,12 +460,12 @@ class VistaJornadas:
         notas = ft.TextField(label="Notas", value=(partido.notas or "") if partido else "", multiline=True,
                              min_lines=1, max_lines=3)
         panel_avisos = avisos_panel()
-        errores_dd = {"local": local, "visitante": visitante, "campo": campo}
+        errores_dd = {"local": local, "visitante": visitante, "campo": campo, "categoria": categoria}
         boton_guardar = ft.FilledButton("Guardar", icon=ft.Icons.SAVE)
         boton_otro = ft.OutlinedButton("Guardar y agregar otro", visible=partido is None)
         forzar = {"activo": False}
 
-        for c in (local, visitante, campo, fecha.campo, hora.campo, estado, motivo, notas, *casillas.values()):
+        for c in (categoria, local, visitante, campo, fecha.campo, hora.campo, estado, motivo, notas, *casillas.values()):
             c.disabled = not editable
 
         def datos() -> DatosPartido:
@@ -441,6 +479,7 @@ class VistaJornadas:
                 estado=estado.value or ESTADO_PROGRAMADO,
                 notas=notas.value or "",
                 motivo_estado=motivo.value or "",
+                categoria_id=int(categoria.value) if categoria.value else None,
             )
 
         def al_cambiar(_=None):
@@ -462,6 +501,25 @@ class VistaJornadas:
             self.page.update()
 
         estado.on_select = cambiar_estado
+
+        def cambiar_categoria(_):
+            cat_id = int(categoria.value) if categoria.value else None
+            nuevas = equipos_de(cat_id)
+            ids = {str(e.id) for e in nuevas}
+            for dd in (local, visitante):
+                dd.options = opciones(nuevas)
+                if dd.value not in ids:
+                    dd.value = None
+            if partido is None:
+                # En un partido nuevo, precargar las posiciones de esa categoría
+                marcadas = posiciones_defecto(cat_id)
+                for clave, chk in casillas.items():
+                    chk.value = clave in marcadas
+            categoria.error_text = None
+            al_cambiar()
+            self.page.update()
+
+        categoria.on_select = cambiar_categoria
 
         def guardar(otro: bool):
             if not (fecha.validar() & hora.validar()):
@@ -511,6 +569,7 @@ class VistaJornadas:
                 title=ft.Text(f"{titulo} · {etiqueta_jornada(self.liga, jornada)}"),
                 content=ft.Column(
                     [
+                        categoria,
                         ft.Row([local, ft.Text("vs", weight=ft.FontWeight.BOLD), visitante],
                                vertical_alignment=ft.CrossAxisAlignment.CENTER),
                         ft.Row([fecha.campo, hora.campo], spacing=12),
@@ -633,6 +692,216 @@ class VistaJornadas:
                     ft.TextButton("Volver", on_click=lambda _: self.page.pop_dialog()),
                     ft.FilledButton("Aplicar", icon=ft.Icons.EVENT_BUSY, on_click=aplicar),
                 ],
+            )
+        )
+
+    # --- Asignación de árbitros --------------------------------------------
+
+    def _resumen_asignacion(self, partidos: list[Partido], faltan: int) -> list[ft.Control]:
+        if not any(p.se_juega for p in partidos):
+            return []
+        controles = []
+        if faltan:
+            controles.append(ft.Row([ft.Icon(ft.Icons.PERSON_SEARCH, color=ft.Colors.ERROR, size=18),
+                                     ft.Text(f"Faltan {faltan} árbitro(s) por asignar", color=ft.Colors.ERROR)],
+                                    spacing=4, tight=True))
+        else:
+            controles.append(ft.Row([ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.PRIMARY, size=18),
+                                     ft.Text("Todos los árbitros asignados", color=ft.Colors.PRIMARY)],
+                                    spacing=4, tight=True))
+        if self.problemas:
+            controles.append(ft.Row([ft.Icon(ft.Icons.WARNING_AMBER, color=ft.Colors.TERTIARY, size=18),
+                                     ft.Text(f"{len(self.problemas)} asignación(es) con avisos", color=ft.Colors.TERTIARY)],
+                                    spacing=4, tight=True))
+        return controles
+
+    def _celda_arbitros(self, p: Partido) -> ft.Control:
+        """Una pastilla por posición: nombre del árbitro, «Falta» o aviso."""
+        asignadas = self.asignaciones.get(p.id, {})
+        if not p.se_juega:
+            nombres = [f"{POSICIONES_CORTAS[pos]}: {a.arbitro.apodo or a.arbitro.nombre}" for pos, a in asignadas.items()]
+            return ft.Text(", ".join(nombres) if nombres else "—", color=ft.Colors.ON_SURFACE_VARIANT, size=12)
+        pastillas = []
+        for pos in p.lista_posiciones:
+            a = asignadas.get(pos)
+            if a is None:
+                fondo, color, texto, icono, ayuda = (
+                    ft.Colors.ERROR_CONTAINER, ft.Colors.ON_ERROR_CONTAINER, "Falta", ft.Icons.PERSON_ADD_ALT_1,
+                    f"{POSICIONES[pos]}: sin asignar")
+            elif a.id in self.problemas:
+                fondo, color, texto, icono, ayuda = (
+                    ft.Colors.TERTIARY_CONTAINER, ft.Colors.ON_TERTIARY_CONTAINER, a.arbitro.apodo or a.arbitro.nombre,
+                    ft.Icons.WARNING_AMBER, "\n".join(self.problemas[a.id]))
+            else:
+                fondo, color, texto, icono, ayuda = (
+                    ft.Colors.PRIMARY_CONTAINER, ft.Colors.ON_PRIMARY_CONTAINER, a.arbitro.apodo or a.arbitro.nombre,
+                    None, f"{POSICIONES[pos]}: {a.arbitro.nombre}")
+            fila = [ft.Text(f"{POSICIONES_CORTAS[pos]}", size=11, weight=ft.FontWeight.BOLD, color=color),
+                    ft.Text(texto, size=12, color=color, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)]
+            if icono:
+                fila.append(ft.Icon(icono, size=14, color=color))
+            pastillas.append(
+                ft.Container(
+                    ft.Row(fila, spacing=4, tight=True),
+                    bgcolor=fondo,
+                    border_radius=8,
+                    padding=ft.Padding.symmetric(horizontal=8, vertical=3),
+                    tooltip=ayuda,
+                    ink=self.app.es_admin,
+                    on_click=(lambda _, pos=pos: self.dialogo_asignar(p, pos)) if self.app.es_admin else None,
+                    width=170,
+                )
+            )
+        return ft.Column(pastillas, spacing=3, tight=True, alignment=ft.MainAxisAlignment.CENTER)
+
+    def _siguiente_faltante(self) -> tuple[Partido, str] | None:
+        asignaciones = self.app.asignaciones.de_jornada(self.app.seleccion["jornada_id"])
+        for p in self.app.jornadas.listar_partidos(self.app.seleccion["jornada_id"]):
+            if p.se_juega:
+                for pos in p.lista_posiciones:
+                    if pos not in asignaciones.get(p.id, {}):
+                        return p, pos
+        return None
+
+    def _asignar_siguiente_faltante(self) -> None:
+        siguiente = self._siguiente_faltante()
+        if siguiente:
+            self.dialogo_asignar(*siguiente, continuar=True)
+        else:
+            avisar(self.page, "¡Listo! Todos los partidos tienen sus árbitros.")
+
+    def dialogo_asignar(self, partido: Partido, posicion: str, continuar: bool = False) -> None:
+        """Elegir árbitro para una posición. Con `continuar`, al terminar abre la siguiente posición vacía."""
+        actual = self.app.asignaciones.de_partido(partido.id).get(posicion)
+        candidatos = self.app.asignaciones.candidatos(partido.id, posicion)
+        busqueda = ft.TextField(hint_text="Buscar árbitro", prefix_icon=ft.Icons.SEARCH, autofocus=True, dense=True)
+        lista = ft.ListView(spacing=2, height=380)
+
+        estilos = {
+            LIBRE: (ft.Icons.CHECK_CIRCLE, ft.Colors.PRIMARY, "Disponible"),
+            SIN_REGISTRAR: (ft.Icons.HELP_OUTLINE, ft.Colors.ON_SURFACE_VARIANT, "No ha dicho su disponibilidad"),
+            CONFLICTO: (ft.Icons.WARNING_AMBER, ft.Colors.TERTIARY, "Con avisos"),
+            NO_DISPONIBLE: (ft.Icons.BLOCK, ft.Colors.ERROR, "No disponible"),
+        }
+
+        def fila(c: Candidato) -> ft.Control:
+            icono, color, etiqueta_ = estilos[c.estado]
+            detalle = etiqueta_ if c.estado != CONFLICTO else c.avisos[0]
+            if c.estado == NO_DISPONIBLE and c.avisos:
+                detalle = c.avisos[0]
+            if c.partidos_dia:
+                detalle += f" · {c.partidos_dia} partido(s) ese día"
+            ocupado_aqui = c.posicion_en_partido is not None
+            es_actual = actual is not None and actual.arbitro_id == c.arbitro.id
+            if ocupado_aqui and not es_actual:
+                detalle = f"Ya está como {POSICIONES[c.posicion_en_partido]} en este partido"
+            nombre = c.arbitro.nombre + (f" «{c.arbitro.apodo}»" if c.arbitro.apodo else "")
+            return ft.ListTile(
+                leading=ft.Icon(icono, color=color),
+                title=ft.Text(nombre, weight=ft.FontWeight.W_500),
+                subtitle=ft.Text(detalle, size=12, max_lines=2),
+                trailing=ft.Icon(ft.Icons.RADIO_BUTTON_CHECKED, color=ft.Colors.PRIMARY) if es_actual else None,
+                selected=es_actual,
+                disabled=ocupado_aqui and not es_actual,
+                dense=True,
+                on_click=lambda _, c=c: elegir(c),
+            )
+
+        def filtrar(_=None):
+            texto = sin_acentos(busqueda.value or "")
+            visibles = [c for c in candidatos
+                        if texto in sin_acentos(f"{c.arbitro.nombre} {c.arbitro.apodo or ''}")]
+            lista.controls = [fila(c) for c in visibles] or [
+                ft.Text("No hay árbitros activos con ese nombre.", color=ft.Colors.ON_SURFACE_VARIANT)]
+            self.page.update()
+
+        def terminar(mensaje: str):
+            self.page.pop_dialog()
+            avisar(self.page, mensaje)
+            self.refrescar()
+            if continuar:
+                siguiente = self._siguiente_faltante()
+                if siguiente:
+                    self.dialogo_asignar(*siguiente, continuar=True)
+
+        def asignar(c: Candidato, forzar: bool):
+            try:
+                self.app.asignaciones.asignar(partido.id, posicion, c.arbitro.id, forzar=forzar)
+            except ErrorValidacion as e:
+                avisar(self.page, e.mensaje, error=True)
+                return
+            except AvisosPendientes as e:
+                confirmar_avisos(c, e.avisos)
+                return
+            terminar(f"{c.arbitro.nombre} asignado como {POSICIONES[posicion]}.")
+
+        def confirmar_avisos(c: Candidato, avisos: list[str]):
+            def si(_):
+                self.page.pop_dialog()
+                asignar(c, True)
+
+            self.page.show_dialog(
+                ft.AlertDialog(
+                    modal=True,
+                    icon=ft.Icon(ft.Icons.WARNING_AMBER, color=ft.Colors.TERTIARY),
+                    title=ft.Text(f"¿Asignar a {c.arbitro.nombre}?"),
+                    content=ft.Column([ft.Text(f"• {a}") for a in avisos], tight=True, width=ANCHO_DIALOGO),
+                    actions=[
+                        ft.TextButton("Elegir otro", on_click=lambda _: self.page.pop_dialog()),
+                        ft.FilledButton("Asignar de todas formas", on_click=si),
+                    ],
+                )
+            )
+
+        def elegir(c: Candidato):
+            if actual is not None and actual.arbitro_id == c.arbitro.id:
+                self.page.pop_dialog()
+                return
+            asignar(c, False)
+
+        def quitar(_):
+            self.app.asignaciones.quitar(partido.id, posicion)
+            self.page.pop_dialog()
+            avisar(self.page, f"{POSICIONES[posicion]} sin asignar.")
+            self.refrescar()
+
+        busqueda.on_change = filtrar
+        lista.controls = [fila(c) for c in candidatos] or [
+            ft.Text("No hay árbitros activos. Regístralos en la sección Árbitros.", color=ft.Colors.ON_SURFACE_VARIANT)]
+        acciones = [ft.TextButton("Cerrar", on_click=lambda _: self.page.pop_dialog())]
+        if continuar:
+            acciones.insert(0, ft.TextButton("Saltar", on_click=lambda _: saltar()))
+        if actual:
+            acciones.insert(0, ft.TextButton("Quitar árbitro", icon=ft.Icons.PERSON_REMOVE, on_click=quitar))
+
+        def saltar():
+            # Pasa a la siguiente posición vacía después de esta (sin asignar la actual)
+            self.page.pop_dialog()
+            pendientes = []
+            asignaciones = self.app.asignaciones.de_jornada(partido.jornada_id)
+            for p in self.app.jornadas.listar_partidos(partido.jornada_id):
+                if p.se_juega:
+                    pendientes += [(p, pos) for pos in p.lista_posiciones if pos not in asignaciones.get(p.id, {})]
+            claves = [(p.id, pos) for p, pos in pendientes]
+            i = claves.index((partido.id, posicion)) if (partido.id, posicion) in claves else -1
+            if 0 <= i < len(pendientes) - 1:
+                self.dialogo_asignar(*pendientes[i + 1], continuar=True)
+
+        self.page.show_dialog(
+            ft.AlertDialog(
+                modal=True,
+                title=ft.Text(f"{POSICIONES[posicion]} · {partido.local.nombre} vs {partido.visitante.nombre}"),
+                content=ft.Column(
+                    [
+                        ft.Text(describir_partido(partido), color=ft.Colors.ON_SURFACE_VARIANT),
+                        busqueda,
+                        lista,
+                    ],
+                    tight=True,
+                    spacing=10,
+                    width=ANCHO_DIALOGO + 120,
+                ),
+                actions=acciones,
             )
         )
 

@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from datetime import date
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, select
 
 from arbitros.db.database import Database
 from arbitros.db.models import (
@@ -11,11 +11,13 @@ from arbitros.db.models import (
     TIPO_LIGA,
     TIPO_TORNEO,
     Campo,
+    Categoria,
     Equipo,
     Jornada,
     Liga,
     Partido,
     Tarifa,
+    TarifaCategoria,
     posiciones_a_csv,
 )
 from arbitros.services.errores import ErrorValidacion
@@ -38,6 +40,7 @@ class ResumenLiga:
     equipos: int
     campos: int
     jornadas: int
+    categorias: int = 0
 
 
 def _nombre_limpio(nombre: str) -> str:
@@ -45,13 +48,15 @@ def _nombre_limpio(nombre: str) -> str:
 
 
 class Catalogo:
-    """Altas, bajas y cambios de equipos o campos de una liga (mismo comportamiento para ambos)."""
+    """Altas, bajas y cambios de equipos, campos o categorías de una liga (mismo comportamiento)."""
 
-    def __init__(self, db: Database, modelo, singular: str, columnas_uso):
+    def __init__(self, db: Database, modelo, singular: str, columnas_uso, articulo: str = "el"):
         self.db = db
         self.modelo = modelo
         self.singular = singular
-        self._columnas_uso = columnas_uso  # columnas de Partido que referencian a este catálogo
+        self.articulo = articulo
+        # [(columna que referencia a este catálogo, nombre de lo que la usa)], p. ej. (Partido.local_id, "partidos")
+        self._columnas_uso = columnas_uso
 
     def listar(self, liga_id: int, solo_activos: bool = False) -> list:
         m = self.modelo
@@ -70,7 +75,7 @@ class Catalogo:
             s.flush()
             return nuevo
 
-    def crear_varios(self, liga_id: int, texto: str) -> tuple[list[str], list[str]]:
+    def crear_varios(self, liga_id: int, texto: str, **extra) -> tuple[list[str], list[str]]:
         """Un nombre por renglón. Devuelve (creados, omitidos por repetidos)."""
         creados, omitidos = [], []
         with self.db.sesion() as s:
@@ -84,7 +89,7 @@ class Catalogo:
                 if sin_acentos(nombre) in existentes:
                     omitidos.append(nombre)
                     continue
-                s.add(self.modelo(liga_id=liga_id, nombre=nombre))
+                s.add(self.modelo(liga_id=liga_id, nombre=nombre, **extra))
                 existentes.add(sin_acentos(nombre))
                 creados.append(nombre)
         return creados, omitidos
@@ -94,7 +99,7 @@ class Catalogo:
         with self.db.sesion() as s:
             item = s.get(self.modelo, item_id)
             if not item:
-                raise ErrorValidacion(f"El {self.singular} ya no existe.")
+                raise ErrorValidacion(f"{self.articulo.capitalize()} {self.singular} ya no existe.")
             self._validar_nombre(s, item.liga_id, nombre, excluir_id=item_id)
             item.nombre = nombre
             for k, v in extra.items():
@@ -109,12 +114,15 @@ class Catalogo:
 
     def eliminar(self, item_id: int) -> None:
         with self.db.sesion() as s:
-            usos = s.scalar(
-                select(func.count(Partido.id)).where(or_(*(col == item_id for col in self._columnas_uso)))
-            )
+            usos: dict[str, int] = {}
+            for columna, que in self._columnas_uso:
+                n = s.scalar(select(func.count()).where(columna == item_id))
+                if n:
+                    usos[que] = usos.get(que, 0) + n
             if usos:
+                detalle = " y ".join(f"{n} {que}" for que, n in usos.items())
                 raise ErrorValidacion(
-                    f"No se puede eliminar: el {self.singular} ya tiene {usos} partido(s). Desactívalo en su lugar."
+                    f"No se puede eliminar: {self.articulo} {self.singular} ya tiene {detalle}. Desactívalo en su lugar."
                 )
             item = s.get(self.modelo, item_id)
             if item:
@@ -127,14 +135,18 @@ class Catalogo:
         if excluir_id is not None:
             consulta = consulta.where(self.modelo.id != excluir_id)
         if any(sin_acentos(x.nombre) == sin_acentos(nombre) for x in s.scalars(consulta)):
-            raise ErrorValidacion(f"Ya existe un {self.singular} con ese nombre.", {"nombre": "Ya existe"})
+            raise ErrorValidacion(f"Ya existe {'una' if self.articulo == 'la' else 'un'} {self.singular} con ese nombre.",
+                                  {"nombre": "Ya existe"})
 
 
 class LigaService:
     def __init__(self, db: Database):
         self.db = db
-        self.equipos = Catalogo(db, Equipo, "equipo", [Partido.local_id, Partido.visitante_id])
-        self.campos = Catalogo(db, Campo, "campo", [Partido.campo_id])
+        self.equipos = Catalogo(db, Equipo, "equipo", [(Partido.local_id, "partidos"), (Partido.visitante_id, "partidos")])
+        self.campos = Catalogo(db, Campo, "campo", [(Partido.campo_id, "partidos")])
+        self.categorias = Catalogo(
+            db, Categoria, "categoría", [(Equipo.categoria_id, "equipos"), (Partido.categoria_id, "partidos")], articulo="la"
+        )
 
     # --- Ligas ------------------------------------------------------------
 
@@ -143,7 +155,7 @@ class LigaService:
             return select(func.count(modelo.id)).where(modelo.liga_id == Liga.id).scalar_subquery()
 
         consulta = (
-            select(Liga, conteo(Equipo), conteo(Campo), conteo(Jornada))
+            select(Liga, conteo(Equipo), conteo(Campo), conteo(Jornada), conteo(Categoria))
             .where(Liga.activa.is_(activas))
         )
         with self.db.sesion() as s:
@@ -216,6 +228,45 @@ class LigaService:
             for posicion, monto in tarifas.items():
                 if posicion in POSICIONES:
                     s.merge(Tarifa(liga_id=liga_id, posicion=posicion, monto_centavos=monto))
+
+    # --- Categorías (sub-ligas) -------------------------------------------
+
+    def tarifas_categoria(self, categoria_id: int) -> dict[str, int] | None:
+        """Tarifas propias de la categoría, o None si usa las de la liga."""
+        with self.db.sesion() as s:
+            filas = {t.posicion: t.monto_centavos
+                     for t in s.scalars(select(TarifaCategoria).where(TarifaCategoria.categoria_id == categoria_id))}
+        return {p: filas.get(p, 0) for p in POSICIONES} if filas else None
+
+    def configurar_categoria(
+        self, categoria_id: int, posiciones: list[str] | None, tarifas: dict[str, int] | None
+    ) -> None:
+        """`None` en posiciones o tarifas = usar lo de la liga."""
+        if posiciones is not None and not posiciones_a_csv(posiciones):
+            raise ErrorValidacion("Marca al menos una posición por defecto.")
+        if tarifas and any(v < 0 for v in tarifas.values()):
+            raise ErrorValidacion("Las tarifas no pueden ser negativas.")
+        with self.db.sesion() as s:
+            categoria = s.get(Categoria, categoria_id)
+            if not categoria:
+                raise ErrorValidacion("La categoría ya no existe.")
+            categoria.posiciones_defecto = posiciones_a_csv(posiciones) if posiciones is not None else None
+            s.execute(delete(TarifaCategoria).where(TarifaCategoria.categoria_id == categoria_id))
+            for posicion, monto in (tarifas or {}).items():
+                if posicion in POSICIONES:
+                    s.add(TarifaCategoria(categoria_id=categoria_id, posicion=posicion, monto_centavos=monto))
+
+    def posiciones_para(self, liga: Liga, categoria: Categoria | None) -> list[str]:
+        """Posiciones por defecto de un partido nuevo: las de la categoría si tiene, si no las de la liga."""
+        return (categoria.lista_posiciones if categoria else None) or liga.lista_posiciones
+
+    def tarifa_para(self, liga_id: int, categoria_id: int | None, posicion: str) -> int:
+        """Centavos que se pagan por `posicion`: tarifa de la categoría si tiene propias, si no la de la liga."""
+        if categoria_id is not None:
+            propias = self.tarifas_categoria(categoria_id)
+            if propias is not None:
+                return propias.get(posicion, 0)
+        return self.tarifas(liga_id).get(posicion, 0)
 
     @staticmethod
     def _validar(s, datos: DatosLiga, excluir_id: int | None = None) -> str:

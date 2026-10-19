@@ -198,3 +198,27 @@ def test_cancelados_no_generan_choques(ligas, svc, liga):
     svc.cambiar_estado([p.id], ESTADO_CANCELADO, "Lluvia")
     # Reprogramación: mismos equipos, mismo campo y hora → sin avisos
     svc.crear_partido(j.id, _partido(eq, ca))
+
+
+def test_partidos_con_categoria(ligas, svc, liga):
+    eq, ca = _ids(ligas, liga)
+    oro = ligas.categorias.crear(liga.id, "Oro")
+    plata = ligas.categorias.crear(liga.id, "Plata")
+    ligas.equipos.actualizar(eq["Tigres"], "Tigres", categoria_id=oro.id)
+    ligas.equipos.actualizar(eq["Pumas"], "Pumas", categoria_id=oro.id)
+    ligas.equipos.actualizar(eq["Toros"], "Toros", categoria_id=plata.id)
+    j = svc.crear(liga.id, SAB)
+    # La liga tiene categorías: es obligatorio elegirla
+    with pytest.raises(ErrorValidacion) as e:
+        svc.crear_partido(j.id, _partido(eq, ca))
+    assert "categoria" in e.value.campos
+    datos = _partido(eq, ca)
+    datos.categoria_id = oro.id
+    p = svc.crear_partido(j.id, datos)
+    assert p.categoria.nombre == "Oro"
+    # Equipo de otra categoría: aviso, no error
+    cruzado = _partido(eq, ca, "Águilas", "Toros", campo="Campo 2")
+    cruzado.categoria_id = oro.id
+    with pytest.raises(AvisosPendientes) as e:
+        svc.crear_partido(j.id, cruzado)
+    assert "Toros es de la categoría Plata" in e.value.avisos[0]

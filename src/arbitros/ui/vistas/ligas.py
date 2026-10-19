@@ -127,7 +127,8 @@ class VistaLigas:
                             ),
                             etiqueta(NOMBRE_TIPO[liga.tipo], liga.activa),
                             ft.Text(
-                                f"{r.equipos} equipos · {r.campos} campos · {r.jornadas} {unidad}",
+                                (f"{r.categorias} categorías · " if r.categorias else "")
+                                + f"{r.equipos} equipos · {r.campos} campos · {r.jornadas} {unidad}",
                                 color=ft.Colors.ON_SURFACE_VARIANT,
                             ),
                         ],
@@ -170,6 +171,13 @@ class VistaLigas:
         fecha.campo.expand = True
         posiciones, casillas, error_pos = selector_posiciones(["central"])
         notas = ft.TextField(label="Notas", multiline=True, min_lines=1, max_lines=3)
+        categorias = ft.TextField(
+            label="Categorías o sub-ligas (opcional)",
+            hint_text="Una por renglón: Veteranos, Premier A, Oro…",
+            multiline=True,
+            min_lines=2,
+            max_lines=6,
+        )
 
         def cambiar_tipo(_):
             bloque_torneo.visible = tipo.value == TIPO_TORNEO
@@ -197,9 +205,10 @@ class VistaLigas:
                 error_pos.visible = "posiciones" in e.campos
                 self.page.update()
                 return
+            self.app.ligas.categorias.crear_varios(liga.id, categorias.value or "")
             self.page.pop_dialog()
             avisar(self.page, f"{liga.nombre} creada. Ahora agrega sus equipos y campos.")
-            self.mostrar_detalle(liga.id)
+            self.mostrar_detalle(liga.id, "equipos")
 
         self.page.show_dialog(
             ft.AlertDialog(
@@ -214,6 +223,7 @@ class VistaLigas:
                         posiciones,
                         ft.Text("En cada partido podrás cambiarlo (p. ej. agregar cuarto árbitro).",
                                 size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                        categorias,
                         notas,
                     ],
                     tight=True,
@@ -244,18 +254,13 @@ class VistaLigas:
             self.page.update()
 
         def mostrar_pestana(clave: str):
-            if clave == "equipos":
-                panel.content = PanelCatalogo(self.app, liga, self.app.ligas.equipos, "equipo", "equipos").construir()
-            elif clave == "campos":
-                panel.content = PanelCatalogo(
-                    self.app, liga, self.app.ligas.campos, "campo", "campos", con_direccion=True
-                ).construir()
-            else:
-                panel.content = PanelTarifas(self.app, liga).construir()
+            paneles = {"categorias": PanelCategorias, "equipos": PanelEquipos, "campos": PanelCampos, "tarifas": PanelTarifas}
+            panel.content = paneles[clave](self.app, liga).construir()
 
         pestanas = ft.SegmentedButton(
             selected=[pestana],
             segments=[
+                ft.Segment(value="categorias", label=ft.Text("Categorías"), icon=ft.Icon(ft.Icons.CATEGORY)),
                 ft.Segment(value="equipos", label=ft.Text("Equipos"), icon=ft.Icon(ft.Icons.GROUPS)),
                 ft.Segment(value="campos", label=ft.Text("Campos"), icon=ft.Icon(ft.Icons.STADIUM)),
                 ft.Segment(value="tarifas", label=ft.Text("Posiciones y tarifas"), icon=ft.Icon(ft.Icons.ATTACH_MONEY)),
@@ -351,63 +356,101 @@ class VistaLigas:
 
 
 class PanelCatalogo:
-    """Lista editable de equipos o campos de una liga."""
+    """Lista editable de elementos de una liga (equipos, campos o categorías).
 
-    def __init__(self, app, liga: Liga, catalogo: Catalogo, singular: str, plural: str, con_direccion: bool = False):
+    Las subclases agregan campos propios con los ganchos `_campos_extra`,
+    `_valores_extra`, `_subtitulo`, `_acciones_extra` y `_filtrar`.
+    """
+
+    icono = ft.Icons.GROUPS
+
+    def __init__(self, app, liga: Liga, catalogo: Catalogo, singular: str, plural: str, ayuda: str = ""):
         self.app = app
         self.page = app.page
         self.liga = liga
         self.catalogo = catalogo
         self.singular = singular
         self.plural = plural
-        self.con_direccion = con_direccion
+        self.ayuda = ayuda
         self.lista = ft.Column(spacing=0)
         self.contador = ft.Text(color=ft.Colors.ON_SURFACE_VARIANT)
         self.nuevo = ft.TextField(
-            label=f"Nombre del {singular}", on_submit=self._agregar, expand=True,
-            hint_text="Escribe y pulsa Enter",
+            label=f"Nombre {'de la' if catalogo.articulo == 'la' else 'del'} {singular}", on_submit=self._agregar,
+            expand=True, hint_text="Escribe y pulsa Enter",
         )
+
+    # --- Ganchos para subclases -----------------------------------------
+
+    def _campos_extra(self, item=None) -> list[ft.Control]:
+        """Controles adicionales para alta (item=None) o edición."""
+        return []
+
+    def _valores_extra(self, controles: list[ft.Control]) -> dict:
+        return {}
+
+    def _subtitulo(self, item) -> str | None:
+        return None
+
+    def _acciones_extra(self, item) -> list[ft.Control]:
+        return []
+
+    def _filtros(self) -> list[ft.Control]:
+        return []
+
+    def _filtrar(self, items: list) -> list:
+        return items
+
+    # --- Vista ------------------------------------------------------------
 
     def construir(self) -> ft.Control:
         self.refrescar(actualizar=False)
         controles = []
+        if self.ayuda:
+            controles.append(ft.Text(self.ayuda, color=ft.Colors.ON_SURFACE_VARIANT))
         if self.app.es_admin:
+            self.extra_alta = self._campos_extra()
             controles.append(
                 ft.Row(
                     [
                         self.nuevo,
+                        *self.extra_alta,
                         ft.FilledButton("Agregar", icon=ft.Icons.ADD, on_click=self._agregar),
                         ft.OutlinedButton("Agregar varios…", icon=ft.Icons.PLAYLIST_ADD, on_click=lambda _: self._varios()),
                     ],
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                 )
             )
-        controles += [self.contador, tarjeta(self.lista)]
+        controles += [ft.Row([self.contador, *self._filtros()], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+                      tarjeta(self.lista)]
         return ft.Column(controles, spacing=12, scroll=ft.ScrollMode.AUTO, expand=True)
 
     def refrescar(self, actualizar: bool = True) -> None:
-        items = self.catalogo.listar(self.liga.id)
-        activos = sum(1 for i in items if i.activo)
+        todos = self.catalogo.listar(self.liga.id)
+        activos = sum(1 for i in todos if i.activo)
         self.contador.value = f"{activos} {self.plural} activos" + (
-            f" · {len(items) - activos} inactivos" if len(items) > activos else ""
+            f" · {len(todos) - activos} inactivos" if len(todos) > activos else ""
         )
-        if not items:
+        items = self._filtrar(todos)
+        if not todos:
             self.lista.controls = [
                 estado_vacio(
-                    ft.Icons.GROUPS if self.singular == "equipo" else ft.Icons.STADIUM,
+                    self.icono,
                     f"Sin {self.plural} todavía",
-                    f"Agrégalos arriba; con «Agregar varios…» puedes pegar una lista, uno por renglón.",
+                    "Agrégalos arriba; con «Agregar varios…» puedes pegar una lista, uno por renglón."
+                    if self.app.es_admin else "",
                 )
             ]
+        elif not items:
+            self.lista.controls = [ft.Text("Nada con este filtro.", color=ft.Colors.ON_SURFACE_VARIANT)]
         else:
             self.lista.controls = [self._fila(i) for i in items]
         if actualizar:
             self.page.update()
 
     def _fila(self, item) -> ft.Control:
-        acciones = []
+        acciones = self._acciones_extra(item)
         if self.app.es_admin:
-            acciones = [
+            acciones += [
                 ft.IconButton(ft.Icons.EDIT, tooltip="Editar", on_click=lambda _, i=item: self._editar(i)),
                 ft.IconButton(
                     ft.Icons.TOGGLE_ON if item.activo else ft.Icons.TOGGLE_OFF,
@@ -416,7 +459,7 @@ class PanelCatalogo:
                 ),
                 ft.IconButton(ft.Icons.DELETE_OUTLINE, tooltip="Eliminar", on_click=lambda _, i=item: self._eliminar(i)),
             ]
-        subtitulo = getattr(item, "direccion", None) if self.con_direccion else None
+        subtitulo = self._subtitulo(item)
         return ft.ListTile(
             title=ft.Text(item.nombre, color=None if item.activo else ft.Colors.ON_SURFACE_VARIANT),
             subtitle=ft.Text(subtitulo) if subtitulo else None,
@@ -425,9 +468,11 @@ class PanelCatalogo:
             dense=True,
         )
 
+    # --- Acciones ---------------------------------------------------------
+
     def _agregar(self, _) -> None:
         try:
-            self.catalogo.crear(self.liga.id, self.nuevo.value or "")
+            self.catalogo.crear(self.liga.id, self.nuevo.value or "", **self._valores_extra(self.extra_alta))
         except ErrorValidacion as e:
             self.nuevo.error = e.campos.get("nombre", e.mensaje)
             self.page.update()
@@ -438,16 +483,16 @@ class PanelCatalogo:
 
     def _varios(self) -> None:
         texto = ft.TextField(
-            label=f"Un {self.singular} por renglón",
+            label=f"{'Una' if self.catalogo.articulo == 'la' else 'Un'} {self.singular} por renglón",
             multiline=True,
             min_lines=8,
             max_lines=14,
             autofocus=True,
-            hint_text="Tigres\nPumas\nÁguilas",
         )
+        extra = self._campos_extra()
 
         def guardar(_):
-            creados, omitidos = self.catalogo.crear_varios(self.liga.id, texto.value or "")
+            creados, omitidos = self.catalogo.crear_varios(self.liga.id, texto.value or "", **self._valores_extra(extra))
             self.page.pop_dialog()
             mensaje = f"{len(creados)} {self.plural} agregados."
             if omitidos:
@@ -460,7 +505,7 @@ class PanelCatalogo:
                 modal=True,
                 title=ft.Text(f"Agregar varios {self.plural}"),
                 content=ft.Column(
-                    [ft.Text("Puedes copiar la lista desde WhatsApp o Excel y pegarla aquí."), texto],
+                    [ft.Text("Puedes copiar la lista desde WhatsApp o Excel y pegarla aquí."), *extra, texto],
                     tight=True,
                     spacing=12,
                     width=ANCHO_DIALOGO,
@@ -474,14 +519,11 @@ class PanelCatalogo:
 
     def _editar(self, item) -> None:
         nombre = ft.TextField(label="Nombre *", value=item.nombre, autofocus=True)
-        direccion = ft.TextField(
-            label="Dirección o referencia", value=getattr(item, "direccion", "") or "", visible=self.con_direccion
-        )
+        extra = self._campos_extra(item)
 
         def guardar(_):
-            extra = {"direccion": (direccion.value or "").strip() or None} if self.con_direccion else {}
             try:
-                self.catalogo.actualizar(item.id, nombre.value or "", **extra)
+                self.catalogo.actualizar(item.id, nombre.value or "", **self._valores_extra(extra))
             except ErrorValidacion as e:
                 mostrar_errores({"nombre": nombre}, e.campos)
                 self.page.update()
@@ -493,7 +535,7 @@ class PanelCatalogo:
             ft.AlertDialog(
                 modal=True,
                 title=ft.Text(f"Editar {self.singular}"),
-                content=ft.Column([nombre, direccion], tight=True, spacing=12, width=ANCHO_DIALOGO),
+                content=ft.Column([nombre, *extra], tight=True, spacing=12, width=ANCHO_DIALOGO),
                 actions=[
                     ft.TextButton("Cancelar", on_click=lambda _: self.page.pop_dialog()),
                     ft.FilledButton("Guardar", icon=ft.Icons.SAVE, on_click=guardar),
@@ -516,6 +558,184 @@ class PanelCatalogo:
             self.refrescar()
 
         confirmar(self.page, f"Eliminar {self.singular}", f"¿Eliminar «{item.nombre}»?", aplicar, "Eliminar")
+
+
+SIN_CATEGORIA = "sin"
+TODAS = "todas"
+
+
+class PanelEquipos(PanelCatalogo):
+    """Equipos; si la liga tiene categorías, cada equipo se asigna a una."""
+
+    def __init__(self, app, liga: Liga):
+        super().__init__(app, liga, app.ligas.equipos, "equipo", "equipos")
+        self.categorias = app.ligas.categorias.listar(liga.id, solo_activos=True)
+        self.nombres_categoria = {c.id: c.nombre for c in app.ligas.categorias.listar(liga.id)}
+        self.filtro_categoria = TODAS
+
+    def _selector_categoria(self, valor: int | None = None) -> ft.Dropdown:
+        opciones = [ft.DropdownOption(key=str(c.id), text=c.nombre) for c in self.categorias]
+        opciones.append(ft.DropdownOption(key=SIN_CATEGORIA, text="Sin categoría"))
+        if valor is None and len(self.categorias) and self.filtro_categoria not in (TODAS, SIN_CATEGORIA):
+            valor = int(self.filtro_categoria)  # al dar de alta, usar la categoría que se está viendo
+        return ft.Dropdown(label="Categoría", options=opciones, value=str(valor) if valor else SIN_CATEGORIA, width=220)
+
+    def _campos_extra(self, item=None) -> list[ft.Control]:
+        if not self.categorias:
+            return []
+        return [self._selector_categoria(item.categoria_id if item else None)]
+
+    def _valores_extra(self, controles) -> dict:
+        if not controles:
+            return {}
+        valor = controles[0].value
+        return {"categoria_id": None if valor in (None, SIN_CATEGORIA) else int(valor)}
+
+    def _subtitulo(self, item) -> str | None:
+        if not self.nombres_categoria:
+            return None
+        return self.nombres_categoria.get(item.categoria_id, "Sin categoría")
+
+    def _filtros(self) -> list[ft.Control]:
+        if not self.categorias:
+            return []
+        opciones = [ft.DropdownOption(key=TODAS, text="Todas las categorías")]
+        opciones += [ft.DropdownOption(key=str(c.id), text=c.nombre) for c in self.categorias]
+        opciones.append(ft.DropdownOption(key=SIN_CATEGORIA, text="Sin categoría"))
+
+        def cambiar(e):
+            self.filtro_categoria = e.control.value
+            if self.app.es_admin and self.extra_alta and self.filtro_categoria != TODAS:
+                self.extra_alta[0].value = self.filtro_categoria
+            self.refrescar()
+
+        return [ft.Dropdown(label="Ver", options=opciones, value=self.filtro_categoria, on_select=cambiar, width=240, dense=True)]
+
+    def _filtrar(self, items: list) -> list:
+        if self.filtro_categoria == TODAS:
+            return items
+        if self.filtro_categoria == SIN_CATEGORIA:
+            return [i for i in items if i.categoria_id is None]
+        return [i for i in items if i.categoria_id == int(self.filtro_categoria)]
+
+
+class PanelCampos(PanelCatalogo):
+    icono = ft.Icons.STADIUM
+
+    def __init__(self, app, liga: Liga):
+        super().__init__(app, liga, app.ligas.campos, "campo", "campos")
+
+    def _campos_extra(self, item=None) -> list[ft.Control]:
+        if item is None:
+            return []  # la dirección se captura al editar, para que el alta sea rápida
+        return [ft.TextField(label="Dirección o referencia", value=item.direccion or "")]
+
+    def _valores_extra(self, controles) -> dict:
+        return {"direccion": (controles[0].value or "").strip() or None} if controles else {}
+
+    def _subtitulo(self, item) -> str | None:
+        return item.direccion
+
+
+class PanelCategorias(PanelCatalogo):
+    """Sub-ligas (Veteranos, Premier A, Oro...) con posiciones y tarifas opcionales propias."""
+
+    icono = ft.Icons.CATEGORY
+
+    def __init__(self, app, liga: Liga):
+        super().__init__(
+            app, liga, app.ligas.categorias, "categoría", "categorías",
+            ayuda="Si la liga se divide en sub-ligas (Veteranos, Premier A, Oro, Plata…), agrégalas aquí. "
+                  "Cada equipo y cada partido pertenecerá a una. Cada categoría puede tener sus propias "
+                  "posiciones y tarifas; si no, usa las de la liga.",
+        )
+
+    def _subtitulo(self, item) -> str | None:
+        partes = []
+        posiciones = item.lista_posiciones
+        partes.append(
+            "Posiciones: " + ", ".join(POSICIONES[p] for p in posiciones) if posiciones else "Posiciones de la liga"
+        )
+        tarifas = self.app.ligas.tarifas_categoria(item.id)
+        if tarifas:
+            partes.append("Tarifas: " + ", ".join(f"{POSICIONES[p]} {formatear_monto(v)}" for p, v in tarifas.items() if v))
+        else:
+            partes.append("Tarifas de la liga")
+        return " · ".join(partes)
+
+    def _acciones_extra(self, item) -> list[ft.Control]:
+        if not self.app.es_admin:
+            return []
+        return [ft.IconButton(ft.Icons.ATTACH_MONEY, tooltip="Posiciones y tarifas propias",
+                              on_click=lambda _, i=item: self._configurar(i))]
+
+    def _configurar(self, categoria) -> None:
+        tarifas_liga = self.app.ligas.tarifas(self.liga.id)
+        propias = self.app.ligas.tarifas_categoria(categoria.id)
+        usar_pos_liga = ft.Switch(label="Usar las posiciones de la liga", value=categoria.lista_posiciones is None)
+        posiciones, casillas, error_pos = selector_posiciones(categoria.lista_posiciones or self.liga.lista_posiciones)
+        usar_tarifas_liga = ft.Switch(label="Usar las tarifas de la liga", value=propias is None)
+        montos = {
+            p: ft.TextField(
+                label=nombre, prefix=ft.Text("$ "), width=150, dense=True, text_align=ft.TextAlign.RIGHT,
+                value=monto_editable((propias or tarifas_liga)[p]) if (propias or tarifas_liga)[p] else "",
+            )
+            for p, nombre in POSICIONES.items()
+        }
+        bloque_montos = ft.Row(list(montos.values()), wrap=True, spacing=8, run_spacing=8)
+
+        def sincronizar(_=None):
+            posiciones.disabled = usar_pos_liga.value
+            bloque_montos.disabled = usar_tarifas_liga.value
+            self.page.update()
+
+        usar_pos_liga.on_change = sincronizar
+        usar_tarifas_liga.on_change = sincronizar
+        posiciones.disabled = usar_pos_liga.value
+        bloque_montos.disabled = usar_tarifas_liga.value
+
+        def guardar(_):
+            tarifas = None
+            if not usar_tarifas_liga.value:
+                tarifas, malos = {}, False
+                for p, campo in montos.items():
+                    try:
+                        tarifas[p] = a_centavos(campo.value or "")
+                        campo.error = None
+                    except ValueError:
+                        campo.error = "No válido"
+                        malos = True
+                if malos:
+                    self.page.update()
+                    return
+            try:
+                self.app.ligas.configurar_categoria(
+                    categoria.id, None if usar_pos_liga.value else posiciones_marcadas(casillas), tarifas
+                )
+            except ErrorValidacion as e:
+                error_pos.value, error_pos.visible = e.mensaje, True
+                self.page.update()
+                return
+            self.page.pop_dialog()
+            avisar(self.page, f"{categoria.nombre} actualizada.")
+            self.refrescar()
+
+        self.page.show_dialog(
+            ft.AlertDialog(
+                modal=True,
+                title=ft.Text(f"Posiciones y tarifas · {categoria.nombre}"),
+                content=ft.Column(
+                    [usar_pos_liga, posiciones, ft.Divider(), usar_tarifas_liga, bloque_montos],
+                    tight=True,
+                    spacing=12,
+                    width=ANCHO_DIALOGO + 160,
+                ),
+                actions=[
+                    ft.TextButton("Cancelar", on_click=lambda _: self.page.pop_dialog()),
+                    ft.FilledButton("Guardar", icon=ft.Icons.SAVE, on_click=guardar),
+                ],
+            )
+        )
 
 
 class PanelTarifas:

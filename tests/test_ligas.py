@@ -107,3 +107,37 @@ def test_tarifas_y_posiciones(ligas):
     assert ligas.tarifas(liga.id) == {"central": 35000, "asistente_1": 20000, "asistente_2": 0, "cuarto": 0}
     with pytest.raises(ErrorValidacion):
         ligas.configurar_posiciones_y_tarifas(liga.id, [], {})
+
+
+def test_categorias_tarifas_y_posiciones(ligas):
+    liga = ligas.crear(DatosLiga(nombre="Liga A", posiciones=["central"]))
+    ligas.configurar_posiciones_y_tarifas(liga.id, ["central"], {"central": 30000})
+    premier = ligas.categorias.crear(liga.id, "Premier A")
+    vet = ligas.categorias.crear(liga.id, "Veteranos")
+    assert ligas.listar()[0].categorias == 2
+    # Sin configuración propia hereda lo de la liga
+    assert ligas.tarifas_categoria(premier.id) is None
+    assert ligas.tarifa_para(liga.id, premier.id, "central") == 30000
+    assert ligas.posiciones_para(liga, premier) == ["central"]
+    # Premier paga más y lleva asistentes
+    ligas.configurar_categoria(premier.id, ["central", "asistente_1", "asistente_2"], {"central": 45000, "asistente_1": 25000})
+    premier = ligas.categorias.listar(liga.id)[0]
+    assert ligas.tarifa_para(liga.id, premier.id, "central") == 45000
+    assert ligas.tarifa_para(liga.id, premier.id, "asistente_2") == 0
+    assert ligas.tarifa_para(liga.id, vet.id, "central") == 30000
+    assert ligas.posiciones_para(liga, premier) == ["central", "asistente_1", "asistente_2"]
+    # Volver a usar lo de la liga
+    ligas.configurar_categoria(premier.id, None, None)
+    assert ligas.tarifa_para(liga.id, premier.id, "central") == 30000
+
+
+def test_equipos_por_categoria_y_eliminar_categoria(ligas):
+    liga = ligas.crear(DatosLiga(nombre="Liga A"))
+    oro = ligas.categorias.crear(liga.id, "Oro")
+    ligas.equipos.crear_varios(liga.id, "Tigres\nPumas", categoria_id=oro.id)
+    assert {e.categoria_id for e in ligas.equipos.listar(liga.id)} == {oro.id}
+    with pytest.raises(ErrorValidacion) as e:
+        ligas.categorias.eliminar(oro.id)
+    assert "2 equipos" in e.value.mensaje
+    with pytest.raises(ErrorValidacion):
+        ligas.categorias.crear(liga.id, "ORO")

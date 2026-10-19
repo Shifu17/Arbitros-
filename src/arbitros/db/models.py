@@ -128,12 +128,41 @@ class Liga(Base):
         return csv_a_posiciones(self.posiciones_defecto)
 
 
+class Categoria(Base):
+    """Sub-liga o categoría dentro de una liga (Veteranos, Premier A, Oro...)."""
+
+    __tablename__ = "categorias"
+    __table_args__ = (UniqueConstraint("liga_id", "nombre"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    liga_id: Mapped[int] = mapped_column(ForeignKey("ligas.id", ondelete="CASCADE"), index=True)
+    nombre: Mapped[str] = mapped_column(String(120))
+    # None = usa las posiciones por defecto de la liga
+    posiciones_defecto: Mapped[str | None] = mapped_column(String(100))
+    activo: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    @property
+    def lista_posiciones(self) -> list[str] | None:
+        return csv_a_posiciones(self.posiciones_defecto) if self.posiciones_defecto else None
+
+
+class TarifaCategoria(Base):
+    """Tarifa propia de una categoría. Si una categoría no tiene filas aquí, aplica la de la liga."""
+
+    __tablename__ = "tarifas_categoria"
+
+    categoria_id: Mapped[int] = mapped_column(ForeignKey("categorias.id", ondelete="CASCADE"), primary_key=True)
+    posicion: Mapped[str] = mapped_column(String(20), primary_key=True)
+    monto_centavos: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class Equipo(Base):
     __tablename__ = "equipos"
     __table_args__ = (UniqueConstraint("liga_id", "nombre"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     liga_id: Mapped[int] = mapped_column(ForeignKey("ligas.id", ondelete="CASCADE"), index=True)
+    categoria_id: Mapped[int | None] = mapped_column(ForeignKey("categorias.id", ondelete="SET NULL"), index=True)
     nombre: Mapped[str] = mapped_column(String(120))
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
 
@@ -178,6 +207,7 @@ class Partido(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     jornada_id: Mapped[int] = mapped_column(ForeignKey("jornadas.id", ondelete="CASCADE"), index=True)
+    categoria_id: Mapped[int | None] = mapped_column(ForeignKey("categorias.id", ondelete="RESTRICT"), index=True)
     fecha: Mapped[date] = mapped_column(Date)
     hora: Mapped[time] = mapped_column(Time)
     campo_id: Mapped[int | None] = mapped_column(ForeignKey("campos.id", ondelete="RESTRICT"))
@@ -194,6 +224,7 @@ class Partido(Base):
     # lazy="joined": los servicios devuelven objetos desacoplados de la sesión
     # y la UI lee estos nombres directamente.
     campo: Mapped["Campo | None"] = relationship(lazy="joined")
+    categoria: Mapped["Categoria | None"] = relationship(lazy="joined")
     local: Mapped["Equipo"] = relationship(foreign_keys=[local_id], lazy="joined")
     visitante: Mapped["Equipo"] = relationship(foreign_keys=[visitante_id], lazy="joined")
 
