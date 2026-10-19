@@ -48,3 +48,6 @@ vuelve a abrir la app.
 - El ejecutable no está firmado digitalmente: la primera vez Windows SmartScreen puede mostrar
   "Windows protegió tu PC" → *Más información* → *Ejecutar de todas formas*. Con un certificado
   de firma de código esto desaparece.
+
+- El README público del repositorio de instaladores se edita en `docs/README_instalacion.md`
+  (su imagen `logo.png` está en la raíz de ese repositorio).
