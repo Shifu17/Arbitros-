@@ -253,3 +253,10 @@ def test_pagos_cedulas_reportes(app, tmp_path):
     va._historial(juan)
     for clave in ("inicio", "pagos", "cedulas", "reportes"):
         shell.ir_a(clave)
+
+
+def test_dialogo_actualizacion(app):
+    from arbitros.services.actualizador import InfoVersion
+
+    app._dialogo_actualizacion(InfoVersion("9.9.9", "- Novedad", "https://github.com/x", "A-9.9.9-instalador.exe", 10, None))
+    assert app.page.dialogos

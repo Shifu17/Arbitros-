@@ -83,4 +83,4 @@ y la app funciona sin internet (salvo buscar actualizaciones y abrir WhatsApp).
 | 3 | Disponibilidad y asignación con avisos de conflicto | ✅ |
 | 4 | Rol para WhatsApp (texto e imagen) | ✅ |
 | 5 | Pagos, cédulas y reportes | ✅ |
-| 6 | Instalador `.exe` y auto-actualización | Pendiente |
+| 6 | Instalador `.exe` y auto-actualización | ✅ (falta crear el repositorio público y publicar la primera versión: ver `docs/publicar.md`) |

@@ -6,11 +6,20 @@ La variable de entorno ARBITROS_DATA_DIR permite usar otra carpeta (desarrollo/p
 """
 
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 APP_NOMBRE = "Árbitros"
 ORGANIZACION = "Colegio de Árbitros de Coahuila"
+# Repositorio PÚBLICO de GitHub donde se publican los instaladores (GitHub Releases).
+# Puede ser un repositorio solo de instaladores, distinto del código. Ver docs/publicar.md
+REPO_ACTUALIZACIONES = os.environ.get("ARBITROS_REPO_ACTUALIZACIONES", "Shifu17/arbitros-releases")
+
+
+def es_instalada() -> bool:
+    """True cuando corre el .exe instalado (PyInstaller), no el código fuente."""
+    return bool(getattr(sys, "frozen", False))
 # Lada que se antepone a teléfonos de 10 dígitos para abrir WhatsApp (México)
 LADA_PAIS = "52"
 

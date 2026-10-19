@@ -31,7 +31,7 @@ def _marco(titulo: str, subtitulo: str, controles: list[ft.Control]) -> ft.Contr
         elevation=4,
     )
     marca = [
-        tema.logo(150),
+        tema.logo(120),
         ft.Text(ORGANIZACION.upper(), size=20, weight=ft.FontWeight.BOLD, color="#FFFFFF",
                 text_align=ft.TextAlign.CENTER),
         ft.Container(height=4, width=160, gradient=ft.LinearGradient(

@@ -7,3 +7,4 @@ dist/
 .pytest_cache/
 # Datos locales de desarrollo (la app real guarda en %APPDATA%\Arbitros)
 datos_dev/
+*.spec

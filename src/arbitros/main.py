@@ -50,6 +50,7 @@ def main(page: ft.Page) -> None:
         # Un respaldo fallido no debe impedir abrir la app
         log.exception("Falló el respaldo automático")
     app.iniciar()
+    app.buscar_actualizaciones()
 
 
 def run() -> None:

@@ -98,6 +98,16 @@ class AsignacionService:
                 resultado.setdefault(a.partido_id, {})[a.posicion] = a
         return resultado
 
+    def de_partidos(self, partido_ids: list[int]) -> dict[int, dict[str, Asignacion]]:
+        """{partido_id: {posicion: Asignacion}} para varios partidos de cualquier jornada."""
+        resultado: dict[int, dict[str, Asignacion]] = {}
+        if not partido_ids:
+            return resultado
+        with self.db.sesion() as s:
+            for x in s.scalars(select(Asignacion).where(Asignacion.partido_id.in_(partido_ids))).unique():
+                resultado.setdefault(x.partido_id, {})[x.posicion] = x
+        return resultado
+
     def de_partido(self, partido_id: int) -> dict[str, Asignacion]:
         with self.db.sesion() as s:
             return {a.posicion: a for a in s.scalars(select(Asignacion).where(Asignacion.partido_id == partido_id)).unique()}

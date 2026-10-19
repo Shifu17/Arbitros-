@@ -204,6 +204,18 @@ class JornadaService:
         with self.db.sesion() as s:
             return list(s.scalars(consulta).unique())
 
+    def partidos_entre(self, desde: date, hasta: date) -> list[tuple[Partido, Liga, Jornada]]:
+        """Partidos de todas las ligas activas en el rango, en orden cronológico."""
+        consulta = (
+            select(Partido, Liga, Jornada)
+            .join(Jornada, Partido.jornada_id == Jornada.id)
+            .join(Liga, Jornada.liga_id == Liga.id)
+            .where(Partido.fecha.between(desde, hasta), Liga.activa.is_(True))
+            .order_by(Partido.fecha, Partido.hora)
+        )
+        with self.db.sesion() as s:
+            return [tuple(fila) for fila in s.execute(consulta).unique()]
+
     def obtener_partido(self, partido_id: int) -> Partido | None:
         with self.db.sesion() as s:
             return s.get(Partido, partido_id)

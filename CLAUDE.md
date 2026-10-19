@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Windows desktop app ("Árbitros") for managing football referees: availability, leagues/short tournaments, match days, WhatsApp rosters, match reports (cédulas) and payments. Single user, local SQLite, offline-first. The UI, domain names, code identifiers and user-facing text are in **Spanish** — keep it that way. Full agreed requirements and phase roadmap: `docs/requisitos.md` (phases 1–5 done; 6 pending). Organization: Colegio de Árbitros de Coahuila (`config.ORGANIZACION`). Bump `__version__` in `src/arbitros/__init__.py` and `pyproject.toml` together at the end of each phase.
+Windows desktop app ("Árbitros") for managing football referees: availability, leagues/short tournaments, match days, WhatsApp rosters, match reports (cédulas) and payments. Single user, local SQLite, offline-first. The UI, domain names, code identifiers and user-facing text are in **Spanish** — keep it that way. Full agreed requirements and phase roadmap: `docs/requisitos.md` (all 6 phases done). Organization: Colegio de Árbitros de Coahuila (`config.ORGANIZACION`). Bump `__version__` in `src/arbitros/__init__.py` and `pyproject.toml` together at the end of each phase.
 
 ## Commands
 
@@ -17,6 +17,10 @@ python -m venv .venv
 $env:PYTHONPATH="src"; .\.venv\Scripts\python -m arbitros
 # Run against throwaway data
 $env:ARBITROS_DATA_DIR="$PWD\datos_dev"; $env:PYTHONPATH="src"; .\.venv\Scripts\python -m arbitros
+
+# Build the desktop app / installer, and publish an update (see docs/publicar.md)
+.\packaging\construir.ps1 [-SinInstalador]     # dist\Arbitros\ + dist\Arbitros-<ver>-instalador.exe (+ .sha256)
+.\packaging\publicar.ps1 -Notas "..."           # GitHub release on config.REPO_ACTUALIZACIONES (needs gh + Inno Setup)
 
 # Tests
 .\.venv\Scripts\python -m pytest
@@ -44,6 +48,7 @@ Layering is strict: `ui/` → `services/` → `db/`. Views never touch SQLAlchem
 - `services/rol.py` — builds a `RolJornada` (resolved names/positions) used by both the WhatsApp text (`*bold*`, `_italic_`, `~strike~`) and `rol_imagen.py` (Pillow, two-pass measure/draw, Segoe UI from `%WINDIR%\Fonts`, no emoji in images). `publicar()` stores a JSON snapshot in `Jornada.rol_publicado`; `cambios()` diffs the current state against it.
 - `services/pagos.py` — per-assignment balance: tarifa − `pagado_campo` − `pagado_despues`. Effective tarifa comes from `tarifa_para()` until money is recorded, then it is frozen in `Asignacion.tarifa_centavos`. A `Pago` liquidates the full balance of selected assignments (`deshacer_pago` reverts). `services/cedulas.py` copies files into `documentos/cedulas/liga_<id>/jornada_<id>/` (stored as relative paths, so backups include them). `services/reportes.py` exports a multi-sheet Excel with openpyxl.
 - `ui/tema.py` — brand theme (black/yellow/red from the logo in `src/arbitros/assets/`). Status colors are fixed constants (`EXITO_*`, `AVISO_*`, `PELIGRO_*`), deliberately not `ft.Colors.PRIMARY*`/`ERROR*`, because the brand primary is red. Use them for any "ok / warning / missing" state.
+- `services/actualizador.py` + `App.buscar_actualizaciones()` — on startup (only when `config.es_instalada()`, i.e. PyInstaller-frozen) queries GitHub Releases of `REPO_ACTUALIZACIONES`, downloads `*-instalador.exe`, verifies its `.sha256`, backs up data and runs the Inno Setup installer silently (`packaging/arbitros.iss`, per-user, closes and relaunches the app). Packaging uses `flet pack --onedir`; migrations and assets are bundled as data files, so code that locates them must use `Path(__file__)`-relative paths.
 - Money is always integer centavos (`services/dinero.py`).
 - Name comparisons, uniqueness and sorting are accent/case-insensitive and done in Python via `services/texto.sin_acentos` (SQLite's `lower()`/collation don't handle accents).
 - `services/respaldos.py` — ZIP backups (`manifest.json` + SQLite backup-API copy + `documentos/`). Restore validates ZIP paths and that the backup's Alembic revision is known, makes a safety backup, then `Database.cerrar()` and replaces files; caller re-runs `migrar()`.
