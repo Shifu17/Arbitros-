@@ -41,7 +41,11 @@ y la app funciona sin internet (salvo buscar actualizaciones y abrir WhatsApp).
 ### 6. Rol para WhatsApp
 - Texto con formato de WhatsApp (*negritas*, emojis) para copiar al portapapeles, legible en celular:
   liga, fecha, hora, campo, equipos y árbitros.
-- Opcional: exportar como imagen PNG y abrir WhatsApp.
+- Organizar por campo, por hora o por árbitro; filtrar por categoría; usar apodos; nota al final.
+- Imagen PNG (copiar al portapapeles o guardar).
+- Mensaje personal para cada árbitro que abre WhatsApp con el texto ya escrito.
+- «Marcar como enviado»: después la app detecta cambios (árbitros, horarios, cancelaciones,
+  partidos nuevos o quitados) y arma un mensaje solo con los cambios.
 
 ### 7. Cédulas
 - Adjuntar PDF/JPG/PNG por partido; la app copia el archivo a su carpeta de documentos.
@@ -72,6 +76,6 @@ y la app funciona sin internet (salvo buscar actualizaciones y abrir WhatsApp).
 | 1 | Estructura, base de datos, login/roles, árbitros, respaldos | ✅ |
 | 2 | Ligas y torneos, equipos, campos, tarifas, jornadas y partidos | ✅ |
 | 3 | Disponibilidad y asignación con avisos de conflicto | ✅ |
-| 4 | Rol para WhatsApp (texto e imagen) | Pendiente |
+| 4 | Rol para WhatsApp (texto e imagen) | ✅ |
 | 5 | Pagos, cédulas y reportes | Pendiente |
 | 6 | Instalador `.exe` y auto-actualización | Pendiente |

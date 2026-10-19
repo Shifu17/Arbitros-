@@ -3,9 +3,14 @@
 import sqlite3
 
 from alembic import command
+from alembic.script import ScriptDirectory
 
 from arbitros.db.database import Database
 from arbitros.db.migrar import configuracion_alembic, migrar, revision_actual
+
+
+def _head(db) -> str:
+    return ScriptDirectory.from_config(configuracion_alembic(db)).get_current_head()
 
 
 def _db_en_0004_con_partido(ruta):
@@ -38,7 +43,7 @@ def test_migrar_tabla_referenciada_con_datos(tmp_path):
     _db_en_0004_con_partido(ruta)
     db = Database.desde_archivo(ruta)
     migrar(db)
-    assert revision_actual(db) == "0005"
+    assert revision_actual(db) == _head(db)
     db.cerrar()
     assert _contar(ruta, "partidos") == 1 and _contar(ruta, "equipos") == 2
 
@@ -60,7 +65,7 @@ def test_recupera_migracion_que_quedo_a_medias(tmp_path):
     con.close()
     db = Database.desde_archivo(ruta)
     migrar(db)
-    assert revision_actual(db) == "0005"
+    assert revision_actual(db) == _head(db)
     db.cerrar()
     con = sqlite3.connect(ruta)
     tablas = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}

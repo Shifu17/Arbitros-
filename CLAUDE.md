@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Windows desktop app ("Árbitros") for managing football referees: availability, leagues/short tournaments, match days, WhatsApp rosters, match reports (cédulas) and payments. Single user, local SQLite, offline-first. The UI, domain names, code identifiers and user-facing text are in **Spanish** — keep it that way. Full agreed requirements and phase roadmap: `docs/requisitos.md` (phases 1–3 done; 4–6 pending). Bump `__version__` in `src/arbitros/__init__.py` and `pyproject.toml` together at the end of each phase.
+Windows desktop app ("Árbitros") for managing football referees: availability, leagues/short tournaments, match days, WhatsApp rosters, match reports (cédulas) and payments. Single user, local SQLite, offline-first. The UI, domain names, code identifiers and user-facing text are in **Spanish** — keep it that way. Full agreed requirements and phase roadmap: `docs/requisitos.md` (phases 1–4 done; 5–6 pending). Bump `__version__` in `src/arbitros/__init__.py` and `pyproject.toml` together at the end of each phase.
 
 ## Commands
 
@@ -41,6 +41,7 @@ Layering is strict: `ui/` → `services/` → `db/`. Views never touch SQLAlchem
 - Partido `estado` in `ESTADOS_SIN_JUEGO` (cancelado/suspendido) means it is ignored by every conflict check and can't receive referees; `motivo_estado` holds the reason.
 - `services/disponibilidad.py` — one `Disponibilidad` row per árbitro/día (no row = "sin registrar").
 - `services/asignaciones.py` — `Asignacion` (partido, posición, árbitro); phase 5 payments will hang off it. `_evaluar()` is the single source of conflict rules (availability, time window, overlap using configurable match duration + rest stored in `Configuracion`), used by `candidatos()`, `asignar()` and `revisar_jornada()` (re-checks existing assignments after edits). Overlaps are checked across all ligas for the same day. Removing a position from a partido deletes its assignment.
+- `services/rol.py` — builds a `RolJornada` (resolved names/positions) used by both the WhatsApp text (`*bold*`, `_italic_`, `~strike~`) and `rol_imagen.py` (Pillow, two-pass measure/draw, Segoe UI from `%WINDIR%\Fonts`, no emoji in images). `publicar()` stores a JSON snapshot in `Jornada.rol_publicado`; `cambios()` diffs the current state against it.
 - Money is always integer centavos (`services/dinero.py`).
 - Name comparisons, uniqueness and sorting are accent/case-insensitive and done in Python via `services/texto.sin_acentos` (SQLite's `lower()`/collation don't handle accents).
 - `services/respaldos.py` — ZIP backups (`manifest.json` + SQLite backup-API copy + `documentos/`). Restore validates ZIP paths and that the backup's Alembic revision is known, makes a safety backup, then `Database.cerrar()` and replaces files; caller re-runs `migrar()`.

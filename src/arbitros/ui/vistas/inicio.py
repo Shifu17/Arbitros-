@@ -71,7 +71,12 @@ def construir(app, shell) -> ft.Control:
             app.asignaciones.hay_asignaciones(),
             ft.TextButton("Ir a Disponibilidad", on_click=lambda _: shell.ir_a("disponibilidad")),
         ),
-        _paso(5, "Genera el rol y compártelo por WhatsApp (fase 4)", False),
+        _paso(
+            5,
+            "Genera el rol y compártelo por WhatsApp",
+            False,
+            ft.TextButton("Ir al Rol", on_click=lambda _: shell.ir_a("rol")),
+        ),
         _paso(6, "Registra pagos y cédulas (fase 5)", False),
     ]
 

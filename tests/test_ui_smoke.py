@@ -17,7 +17,7 @@ from arbitros.services.jornadas import DatosPartido
 from arbitros.services.ligas import DatosLiga
 from arbitros.ui.app import App
 from arbitros.ui.shell import Shell
-from arbitros.ui.vistas import acceso, arbitros, disponibilidad, jornadas, ligas, respaldos, usuarios
+from arbitros.ui.vistas import acceso, arbitros, disponibilidad, jornadas, ligas, respaldos, rol, usuarios
 
 
 class PaginaFalsa:
@@ -187,3 +187,22 @@ def test_disponibilidad(app):
     vd._mover(7)
     vd.busqueda.value = "zzz"
     vd.refrescar()
+
+
+def test_rol(app):
+    shell = Shell(app)
+    shell.construir()
+    for r in app.ligas.listar():
+        app.seleccion["liga_id"] = r.liga.id
+        app.seleccion["jornada_id"] = None
+        vr = rol.VistaRol(app, shell)
+        vr.construir()
+        for agrupar in ("campo", "hora", "arbitro"):
+            vr.opciones.agrupar = agrupar
+            for modo in ("texto", "imagen"):
+                vr.modo = modo
+                vr.refrescar()
+        vr._dialogo_individual()
+        vr._publicar()
+        vr.refrescar()
+    assert "**" in rol.whatsapp_a_markdown("*Hola* _bien_ ~no~")

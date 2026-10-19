@@ -200,6 +200,9 @@ class Jornada(Base):
     fecha_inicio: Mapped[date] = mapped_column(Date)
     fecha_fin: Mapped[date | None] = mapped_column(Date)
     notas: Mapped[str | None] = mapped_column(Text)
+    # Última vez que se envió el rol y una foto (JSON) de cómo estaba, para detectar cambios
+    rol_publicado_en: Mapped[datetime | None] = mapped_column(DateTime)
+    rol_publicado: Mapped[str | None] = mapped_column(Text)
 
 
 class Partido(Base):

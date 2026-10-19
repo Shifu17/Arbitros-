@@ -16,6 +16,7 @@ from arbitros.ui.vistas import inicio as vista_inicio
 from arbitros.ui.vistas import jornadas as vista_jornadas
 from arbitros.ui.vistas import ligas as vista_ligas
 from arbitros.ui.vistas import respaldos as vista_respaldos
+from arbitros.ui.vistas import rol as vista_rol
 from arbitros.ui.vistas import usuarios as vista_usuarios
 from arbitros.ui.vistas.proximamente import proximamente
 
@@ -44,10 +45,7 @@ SECCIONES = [
         "disponibilidad", "Disponibilidad", ft.Icons.EVENT_AVAILABLE_OUTLINED, ft.Icons.EVENT_AVAILABLE,
         vista_disponibilidad.construir,
     ),
-    Seccion(
-        "rol", "Rol para WhatsApp", ft.Icons.SEND_OUTLINED, ft.Icons.SEND, fase=4,
-        descripcion="Genera el rol de la jornada listo para pegar en WhatsApp o como imagen.",
-    ),
+    Seccion("rol", "Rol para WhatsApp", ft.Icons.SEND_OUTLINED, ft.Icons.SEND, vista_rol.construir),
     Seccion(
         "pagos", "Pagos", ft.Icons.PAYMENTS_OUTLINED, ft.Icons.PAYMENTS, fase=5,
         descripcion="Tarifa, pagado en campo y saldo pendiente de cada árbitro.",

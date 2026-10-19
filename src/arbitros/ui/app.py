@@ -21,6 +21,7 @@ from arbitros.services.disponibilidad import DisponibilidadService
 from arbitros.services.jornadas import JornadaService
 from arbitros.services.ligas import LigaService
 from arbitros.services.respaldos import RespaldoService
+from arbitros.services.rol import RolService
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +41,7 @@ class App:
         self.jornadas = JornadaService(db)
         self.disponibilidad = DisponibilidadService(db)
         self.asignaciones = AsignacionService(db, self.config)
+        self.rol = RolService(db, self.jornadas, self.asignaciones)
         self.usuario: Usuario | None = None
         # Última liga/jornada vista, para que al cambiar de sección no se pierda la selección
         self.seleccion: dict = {"liga_id": None, "jornada_id": None}
