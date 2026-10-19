@@ -9,19 +9,23 @@ from pathlib import Path
 
 import flet as ft
 
-from arbitros.config import APP_NOMBRE, Rutas
+from arbitros.config import APP_NOMBRE, ORGANIZACION, Rutas
 from arbitros.db.database import Database
 from arbitros.db.migrar import migrar
 from arbitros.db.models import Usuario
 from arbitros.services.arbitros import ArbitroService
 from arbitros.services.auth import AuthService
 from arbitros.services.asignaciones import AsignacionService
+from arbitros.services.cedulas import CedulaService
 from arbitros.services.configuracion import ConfiguracionService
 from arbitros.services.disponibilidad import DisponibilidadService
 from arbitros.services.jornadas import JornadaService
 from arbitros.services.ligas import LigaService
+from arbitros.services.pagos import PagoService
+from arbitros.services.reportes import ReporteService
 from arbitros.services.respaldos import RespaldoService
 from arbitros.services.rol import RolService
+from arbitros.ui import tema
 
 log = logging.getLogger(__name__)
 
@@ -42,6 +46,9 @@ class App:
         self.disponibilidad = DisponibilidadService(db)
         self.asignaciones = AsignacionService(db, self.config)
         self.rol = RolService(db, self.jornadas, self.asignaciones)
+        self.pagos = PagoService(db, self.ligas)
+        self.cedulas = CedulaService(db, rutas)
+        self.reportes = ReporteService(self.pagos, self.cedulas)
         self.usuario: Usuario | None = None
         # Última liga/jornada vista, para que al cambiar de sección no se pierda la selección
         self.seleccion: dict = {"liga_id": None, "jornada_id": None}
@@ -105,7 +112,7 @@ class App:
 
     def _configurar_ventana(self) -> None:
         p = self.page
-        p.title = APP_NOMBRE
+        p.title = f"{APP_NOMBRE} · {ORGANIZACION}"
         p.window.width = 1240
         p.window.height = 800
         p.window.min_width = 960
@@ -113,8 +120,10 @@ class App:
         p.padding = 0
         espanol = ft.Locale("es", "MX")
         p.locale_configuration = ft.LocaleConfiguration(supported_locales=[espanol], current_locale=espanol)
-        p.theme = ft.Theme(color_scheme_seed=ft.Colors.GREEN_700)
-        p.dark_theme = ft.Theme(color_scheme_seed=ft.Colors.GREEN_700)
+        p.theme = tema.tema(oscuro=False)
+        p.dark_theme = tema.tema(oscuro=True)
+        if tema.RUTA_ICONO.exists():
+            p.window.icon = str(tema.RUTA_ICONO)
         oscuro = self.config.obtener(CLAVE_TEMA) == "oscuro"
         p.theme_mode = ft.ThemeMode.DARK if oscuro else ft.ThemeMode.LIGHT
 

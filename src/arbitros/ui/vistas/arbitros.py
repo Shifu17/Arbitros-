@@ -1,6 +1,6 @@
 import flet as ft
 
-from arbitros.db.models import Arbitro
+from arbitros.db.models import POSICIONES, Arbitro
 from arbitros.services.arbitros import (
     FILTRO_ACTIVOS,
     FILTRO_INACTIVOS,
@@ -9,6 +9,7 @@ from arbitros.services.arbitros import (
     enlace_whatsapp,
     formatear_telefono,
 )
+from arbitros.services.dinero import formatear_monto
 from arbitros.services.errores import ErrorValidacion
 from arbitros.ui.comunes import (
     ANCHO_DIALOGO,
@@ -16,8 +17,10 @@ from arbitros.ui.comunes import (
     confirmar,
     estado_vacio,
     etiqueta,
+    fecha_corta,
     mostrar_errores,
 )
+from arbitros.ui.vistas.pagos import etiqueta_pago
 
 
 def construir(app, shell) -> ft.Control:
@@ -103,6 +106,8 @@ class VistaArbitros:
                     url=enlace_whatsapp(a.telefono),
                     icon_color=ft.Colors.PRIMARY,
                 ),
+                ft.IconButton(ft.Icons.HISTORY, tooltip="Historial de partidos y pagos",
+                              on_click=lambda _, a=a: self._historial(a)),
                 ft.IconButton(
                     ft.Icons.EDIT if self.app.es_admin else ft.Icons.VISIBILITY,
                     tooltip="Editar" if self.app.es_admin else "Ver detalle",
@@ -143,6 +148,42 @@ class VistaArbitros:
             border_radius=8,
             expand=True,
         )
+
+    def _historial(self, a: Arbitro) -> None:
+        lineas = sorted(self.app.pagos.lineas(arbitro_id=a.id), key=lambda l: (l.partido.fecha, l.partido.hora),
+                        reverse=True)
+        pagos = self.app.pagos.historial(a.id)
+        jugados = [l for l in lineas if l.partido.se_juega]
+        resumen = (f"{len(jugados)} partido(s) asignados · ganado {formatear_monto(sum(l.tarifa for l in lineas))} · "
+                   f"pendiente {formatear_monto(sum(l.saldo for l in lineas if l.jugado and not l.liquidada))}")
+        filas = [
+            ft.DataRow(cells=[
+                ft.DataCell(ft.Text(f"{fecha_corta(l.partido.fecha)} {l.partido.fecha.year}")),
+                ft.DataCell(ft.Text(f"{l.liga.nombre} · {l.jornada}")),
+                ft.DataCell(ft.Text(f"{l.partido.local.nombre} vs {l.partido.visitante.nombre}")),
+                ft.DataCell(ft.Text(POSICIONES[l.posicion])),
+                ft.DataCell(ft.Text(formatear_monto(l.tarifa))),
+                ft.DataCell(etiqueta_pago(l)),
+            ])
+            for l in lineas[:100]
+        ]
+        contenido = [ft.Text(resumen, weight=ft.FontWeight.W_600)]
+        if filas:
+            contenido.append(ft.DataTable(
+                columns=[ft.DataColumn(ft.Text(c)) for c in ("Fecha", "Liga", "Partido", "Posición", "Tarifa", "Pago")],
+                rows=filas, column_spacing=16, heading_row_color=ft.Colors.SURFACE_CONTAINER_HIGHEST))
+        else:
+            contenido.append(ft.Text("Todavía no tiene partidos asignados.", color=ft.Colors.ON_SURFACE_VARIANT))
+        if pagos:
+            contenido += [ft.Text("Pagos recibidos", weight=ft.FontWeight.W_600)] + [
+                ft.Text(f"• {p.fecha:%d/%m/%Y}: {formatear_monto(p.monto_centavos)} ({n} partido(s))"
+                        + (f" · {p.nota}" if p.nota else ""))
+                for p, n in pagos]
+        self.page.show_dialog(ft.AlertDialog(
+            title=ft.Text(f"Historial · {a.nombre}"),
+            content=ft.Column(contenido, spacing=10, scroll=ft.ScrollMode.AUTO, height=480, width=ANCHO_DIALOGO + 420),
+            actions=[ft.TextButton("Cerrar", on_click=lambda _: self.page.pop_dialog())],
+        ))
 
     def _alternar_activo(self, a: Arbitro) -> None:
         def aplicar():

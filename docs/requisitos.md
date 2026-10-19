@@ -1,5 +1,8 @@
 # Árbitros — Requisitos acordados
 
+Organización: **Colegio de Árbitros de Coahuila**. Identidad visual tomada de su logo (negro, amarillo `#FEC106`,
+rojo `#D41014`); el logo aparece en el inicio de sesión, el menú, la ventana y la imagen del rol.
+
 Aplicación de escritorio para Windows que centraliza la administración de árbitros de fútbol:
 disponibilidad semanal, ligas y torneos, jornadas y partidos, roles para WhatsApp, cédulas y pagos.
 La usa **una sola persona en una computadora**; los datos se guardan en **SQLite local**
@@ -56,6 +59,8 @@ y la app funciona sin internet (salvo buscar actualizaciones y abrir WhatsApp).
 - Por asignación: **Tarifa** (automática por liga y posición, editable) − **Pagado en campo**
   (lo que la liga/equipos le dan al árbitro en el campo) − **Pagos posteriores** = **Saldo pendiente**.
 - Consultar lo que corresponde a cada árbitro por periodo, jornada o liga; historial.
+- La tarifa se congela en cuanto se registra dinero; cancelados valen 0 salvo tarifa manual.
+- «Pagar…» liquida el saldo completo de los partidos elegidos (se puede deshacer); estado de cuenta por WhatsApp.
 
 ### 9. Reportes y búsqueda
 - Jornadas pasadas y futuras; buscar partidos, árbitros, cédulas y pagos.
@@ -77,5 +82,5 @@ y la app funciona sin internet (salvo buscar actualizaciones y abrir WhatsApp).
 | 2 | Ligas y torneos, equipos, campos, tarifas, jornadas y partidos | ✅ |
 | 3 | Disponibilidad y asignación con avisos de conflicto | ✅ |
 | 4 | Rol para WhatsApp (texto e imagen) | ✅ |
-| 5 | Pagos, cédulas y reportes | Pendiente |
+| 5 | Pagos, cédulas y reportes | ✅ |
 | 6 | Instalador `.exe` y auto-actualización | Pendiente |

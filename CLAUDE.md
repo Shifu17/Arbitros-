@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Windows desktop app ("Árbitros") for managing football referees: availability, leagues/short tournaments, match days, WhatsApp rosters, match reports (cédulas) and payments. Single user, local SQLite, offline-first. The UI, domain names, code identifiers and user-facing text are in **Spanish** — keep it that way. Full agreed requirements and phase roadmap: `docs/requisitos.md` (phases 1–4 done; 5–6 pending). Bump `__version__` in `src/arbitros/__init__.py` and `pyproject.toml` together at the end of each phase.
+Windows desktop app ("Árbitros") for managing football referees: availability, leagues/short tournaments, match days, WhatsApp rosters, match reports (cédulas) and payments. Single user, local SQLite, offline-first. The UI, domain names, code identifiers and user-facing text are in **Spanish** — keep it that way. Full agreed requirements and phase roadmap: `docs/requisitos.md` (phases 1–5 done; 6 pending). Organization: Colegio de Árbitros de Coahuila (`config.ORGANIZACION`). Bump `__version__` in `src/arbitros/__init__.py` and `pyproject.toml` together at the end of each phase.
 
 ## Commands
 
@@ -42,6 +42,8 @@ Layering is strict: `ui/` → `services/` → `db/`. Views never touch SQLAlchem
 - `services/disponibilidad.py` — one `Disponibilidad` row per árbitro/día (no row = "sin registrar").
 - `services/asignaciones.py` — `Asignacion` (partido, posición, árbitro); phase 5 payments will hang off it. `_evaluar()` is the single source of conflict rules (availability, time window, overlap using configurable match duration + rest stored in `Configuracion`), used by `candidatos()`, `asignar()` and `revisar_jornada()` (re-checks existing assignments after edits). Overlaps are checked across all ligas for the same day. Removing a position from a partido deletes its assignment.
 - `services/rol.py` — builds a `RolJornada` (resolved names/positions) used by both the WhatsApp text (`*bold*`, `_italic_`, `~strike~`) and `rol_imagen.py` (Pillow, two-pass measure/draw, Segoe UI from `%WINDIR%\Fonts`, no emoji in images). `publicar()` stores a JSON snapshot in `Jornada.rol_publicado`; `cambios()` diffs the current state against it.
+- `services/pagos.py` — per-assignment balance: tarifa − `pagado_campo` − `pagado_despues`. Effective tarifa comes from `tarifa_para()` until money is recorded, then it is frozen in `Asignacion.tarifa_centavos`. A `Pago` liquidates the full balance of selected assignments (`deshacer_pago` reverts). `services/cedulas.py` copies files into `documentos/cedulas/liga_<id>/jornada_<id>/` (stored as relative paths, so backups include them). `services/reportes.py` exports a multi-sheet Excel with openpyxl.
+- `ui/tema.py` — brand theme (black/yellow/red from the logo in `src/arbitros/assets/`). Status colors are fixed constants (`EXITO_*`, `AVISO_*`, `PELIGRO_*`), deliberately not `ft.Colors.PRIMARY*`/`ERROR*`, because the brand primary is red. Use them for any "ok / warning / missing" state.
 - Money is always integer centavos (`services/dinero.py`).
 - Name comparisons, uniqueness and sorting are accent/case-insensitive and done in Python via `services/texto.sin_acentos` (SQLite's `lower()`/collation don't handle accents).
 - `services/respaldos.py` — ZIP backups (`manifest.json` + SQLite backup-API copy + `documentos/`). Restore validates ZIP paths and that the backup's Alembic revision is known, makes a safety backup, then `Database.cerrar()` and replaces files; caller re-runs `migrar()`.
@@ -55,7 +57,7 @@ Layering is strict: `ui/` → `services/` → `db/`. Views never touch SQLAlchem
 
 The project pins Flet 1.0.x, whose API differs from older tutorials: `ft.run(main)`, `ft.Colors`/`ft.Icons`, `ft.Button`/`ft.FilledButton` (no `ElevatedButton`), dialogs and snackbars via `page.show_dialog()` / `page.pop_dialog()`, `TextField(error=..., helper=...)`, `Dropdown(on_select=...)`, `ft.Padding.symmetric(...)`, `ft.Alignment.CENTER`, and services like `FilePicker` use `await` methods (`pick_files`, `get_directory_path`). Check signatures in `.venv/Lib/site-packages/flet/controls/` when unsure.
 
-`tests/test_ui_smoke.py` builds every screen and dialog against a fake page — it catches invalid Flet parameters without opening a window. Keep it updated when adding views.
+`tests/test_ui_smoke.py` builds every screen and dialog against a fake page — it catches invalid Flet parameters without opening a window. Keep it updated when adding views. It does **not** catch layout problems (e.g. a Row of buttons squashing a title into a vertical column of letters): the default window is 1240×800 with a 220 px menu, so keep tables to ~5 columns or wrap them in a horizontally scrollable Row, and put action buttons in their own `wrap=True` row.
 
 ## Domain conventions
 

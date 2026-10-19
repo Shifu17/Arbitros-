@@ -10,11 +10,17 @@ from typing import Callable
 
 import flet as ft
 
+from arbitros.config import ORGANIZACION
+from arbitros.ui import tema
+
 from arbitros.ui.vistas import arbitros as vista_arbitros
+from arbitros.ui.vistas import cedulas as vista_cedulas
 from arbitros.ui.vistas import disponibilidad as vista_disponibilidad
 from arbitros.ui.vistas import inicio as vista_inicio
 from arbitros.ui.vistas import jornadas as vista_jornadas
 from arbitros.ui.vistas import ligas as vista_ligas
+from arbitros.ui.vistas import pagos as vista_pagos
+from arbitros.ui.vistas import reportes as vista_reportes
 from arbitros.ui.vistas import respaldos as vista_respaldos
 from arbitros.ui.vistas import rol as vista_rol
 from arbitros.ui.vistas import usuarios as vista_usuarios
@@ -46,18 +52,9 @@ SECCIONES = [
         vista_disponibilidad.construir,
     ),
     Seccion("rol", "Rol para WhatsApp", ft.Icons.SEND_OUTLINED, ft.Icons.SEND, vista_rol.construir),
-    Seccion(
-        "pagos", "Pagos", ft.Icons.PAYMENTS_OUTLINED, ft.Icons.PAYMENTS, fase=5,
-        descripcion="Tarifa, pagado en campo y saldo pendiente de cada árbitro.",
-    ),
-    Seccion(
-        "cedulas", "Cédulas", ft.Icons.DESCRIPTION_OUTLINED, ft.Icons.DESCRIPTION, fase=5,
-        descripcion="Sube la cédula (PDF o foto) de cada partido y revisa cuáles faltan.",
-    ),
-    Seccion(
-        "reportes", "Reportes", ft.Icons.BAR_CHART_OUTLINED, ft.Icons.BAR_CHART, fase=5,
-        descripcion="Partidos arbitrados, pagos pendientes y exportación a Excel.",
-    ),
+    Seccion("pagos", "Pagos", ft.Icons.PAYMENTS_OUTLINED, ft.Icons.PAYMENTS, vista_pagos.construir),
+    Seccion("cedulas", "Cédulas", ft.Icons.DESCRIPTION_OUTLINED, ft.Icons.DESCRIPTION, vista_cedulas.construir),
+    Seccion("reportes", "Reportes", ft.Icons.BAR_CHART_OUTLINED, ft.Icons.BAR_CHART, vista_reportes.construir),
     Seccion("respaldos", "Respaldos", ft.Icons.BACKUP_OUTLINED, ft.Icons.BACKUP, vista_respaldos.construir),
     Seccion(
         "usuarios", "Usuarios", ft.Icons.MANAGE_ACCOUNTS_OUTLINED, ft.Icons.MANAGE_ACCOUNTS,
@@ -79,7 +76,11 @@ class Shell:
             leading=self._cabecera_menu(),
             trailing=self._pie_menu(),
             destinations=[
-                ft.NavigationRailDestination(icon=s.icono, selected_icon=s.icono_activo, label=s.titulo)
+                ft.NavigationRailDestination(
+                    icon=ft.Icon(s.icono, color=tema.TEXTO_MENU),
+                    selected_icon=ft.Icon(s.icono_activo, color=tema.NEGRO),
+                    label=s.titulo,
+                )
                 for s in self.secciones
             ],
             on_change=lambda e: self._mostrar(self.secciones[e.control.selected_index]),
@@ -106,24 +107,25 @@ class Shell:
 
     def _cabecera_menu(self) -> ft.Control:
         u = self.app.usuario
+        nombre_corto, _, resto = ORGANIZACION.partition(" de Árbitros ")
         return ft.Container(
             ft.Column(
                 [
-                    ft.Row(
-                        [
-                            ft.Icon(ft.Icons.SPORTS_SOCCER, color=ft.Colors.PRIMARY, size=30),
-                            ft.Text("Árbitros", size=22, weight=ft.FontWeight.BOLD),
-                        ]
-                    ),
+                    tema.logo(96),
+                    ft.Text(f"{nombre_corto} de Árbitros", size=15, weight=ft.FontWeight.BOLD, color="#FFFFFF",
+                            text_align=ft.TextAlign.CENTER),
+                    ft.Text(resto, size=13, weight=ft.FontWeight.W_600, color=tema.AMARILLO),
                     ft.Text(
                         f"{u.nombre} · {'Administrador' if u.es_admin else 'Consulta'}",
                         size=12,
-                        color=ft.Colors.ON_SURFACE_VARIANT,
+                        color=tema.TEXTO_MENU,
+                        text_align=ft.TextAlign.CENTER,
                     ),
                 ],
                 spacing=4,
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             ),
-            padding=ft.Padding.only(left=16, top=8, bottom=16),
+            padding=ft.Padding.only(top=12, bottom=16),
             width=200,
         )
 
@@ -134,25 +136,27 @@ class Shell:
         boton_tema = ft.IconButton(
             ft.Icons.LIGHT_MODE if oscuro else ft.Icons.DARK_MODE,
             tooltip="Cambiar tema claro/oscuro",
+            icon_color=tema.TEXTO_MENU,
         )
 
-        def tema(_):
+        def cambiar_tema(_):
             self.app.alternar_tema()
             boton_tema.icon = (
                 ft.Icons.LIGHT_MODE if self.app.page.theme_mode == ft.ThemeMode.DARK else ft.Icons.DARK_MODE
             )
             self.app.page.update()
 
-        boton_tema.on_click = tema
+        boton_tema.on_click = cambiar_tema
         return ft.Container(
             ft.Row(
                 [
                     boton_tema,
                     ft.IconButton(
-                        ft.Icons.KEY, tooltip="Cambiar mi contraseña",
+                        ft.Icons.KEY, tooltip="Cambiar mi contraseña", icon_color=tema.TEXTO_MENU,
                         on_click=lambda _: dialogo_cambiar_mi_password(self.app),
                     ),
-                    ft.IconButton(ft.Icons.LOGOUT, tooltip="Cerrar sesión", on_click=lambda _: self.app.ir_a_login()),
+                    ft.IconButton(ft.Icons.LOGOUT, tooltip="Cerrar sesión", icon_color=tema.TEXTO_MENU,
+                                  on_click=lambda _: self.app.ir_a_login()),
                 ]
             ),
             padding=ft.Padding.only(top=16, bottom=8),

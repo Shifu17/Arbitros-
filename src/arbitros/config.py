@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 APP_NOMBRE = "Árbitros"
+ORGANIZACION = "Colegio de Árbitros de Coahuila"
 # Lada que se antepone a teléfonos de 10 dígitos para abrir WhatsApp (México)
 LADA_PAIS = "52"
 

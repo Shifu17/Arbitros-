@@ -280,5 +280,50 @@ class Asignacion(Base):
     posicion: Mapped[str] = mapped_column(String(20))
     creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
+    # --- Pago (fase 5). Dinero en centavos ---
+    # None = usar la tarifa vigente de la liga/categoría. Se congela al registrar cualquier pago.
+    tarifa_centavos: Mapped[int | None] = mapped_column(Integer)
+    pagado_campo_centavos: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # Lo que se le liquidó después (en un Pago); al liquidar se paga el saldo completo
+    pagado_despues_centavos: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    pago_id: Mapped[int | None] = mapped_column(ForeignKey("pagos.id", ondelete="SET NULL"), index=True)
+
     arbitro: Mapped["Arbitro"] = relationship(lazy="joined")
     partido: Mapped["Partido"] = relationship(lazy="joined")
+
+
+class Pago(Base):
+    """Liquidación a un árbitro de una o varias asignaciones (pagos posteriores al partido)."""
+
+    __tablename__ = "pagos"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    arbitro_id: Mapped[int] = mapped_column(ForeignKey("arbitros.id", ondelete="RESTRICT"), index=True)
+    fecha: Mapped[date] = mapped_column(Date)
+    monto_centavos: Mapped[int] = mapped_column(Integer)
+    nota: Mapped[str | None] = mapped_column(String(250))
+    creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    arbitro: Mapped["Arbitro"] = relationship(lazy="joined")
+
+
+class CedulaArchivo(Base):
+    """Archivo (PDF o foto) de la cédula de un partido. `ruta` es relativa a la carpeta de documentos."""
+
+    __tablename__ = "cedulas_archivos"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    partido_id: Mapped[int] = mapped_column(ForeignKey("partidos.id", ondelete="CASCADE"), index=True)
+    ruta: Mapped[str] = mapped_column(String(300))
+    nombre_original: Mapped[str] = mapped_column(String(250))
+    subido_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class CedulaExcepcion(Base):
+    """Partido que no requiere cédula individual, con su motivo."""
+
+    __tablename__ = "cedulas_excepciones"
+
+    partido_id: Mapped[int] = mapped_column(ForeignKey("partidos.id", ondelete="CASCADE"), primary_key=True)
+    motivo: Mapped[str] = mapped_column(String(250))
+    creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

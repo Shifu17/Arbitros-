@@ -3,7 +3,8 @@
 import flet as ft
 
 from arbitros import __version__
-from arbitros.config import APP_NOMBRE
+from arbitros.config import APP_NOMBRE, ORGANIZACION
+from arbitros.ui import tema
 from arbitros.services.errores import ErrorAutenticacion, ErrorValidacion
 from arbitros.ui.comunes import ANCHO_DIALOGO, avisar, campo_password, mostrar_errores
 
@@ -13,9 +14,7 @@ ANCHO_TARJETA = 420
 def _marco(titulo: str, subtitulo: str, controles: list[ft.Control]) -> ft.Control:
     """Tarjeta centrada con el logo de la app."""
     cabecera = [
-        ft.Icon(ft.Icons.SPORTS_SOCCER, size=56, color=ft.Colors.PRIMARY),
-        ft.Text(APP_NOMBRE, size=30, weight=ft.FontWeight.BOLD),
-        ft.Text(titulo, size=18, weight=ft.FontWeight.W_500),
+        ft.Text(titulo, size=22, weight=ft.FontWeight.BOLD),
         ft.Text(subtitulo, color=ft.Colors.ON_SURFACE_VARIANT, text_align=ft.TextAlign.CENTER),
     ]
     tarjeta = ft.Card(
@@ -31,9 +30,18 @@ def _marco(titulo: str, subtitulo: str, controles: list[ft.Control]) -> ft.Contr
         ),
         elevation=4,
     )
+    marca = [
+        tema.logo(150),
+        ft.Text(ORGANIZACION.upper(), size=20, weight=ft.FontWeight.BOLD, color="#FFFFFF",
+                text_align=ft.TextAlign.CENTER),
+        ft.Container(height=4, width=160, gradient=ft.LinearGradient(
+            colors=[tema.AMARILLO, tema.AMARILLO, tema.ROJO, tema.ROJO], stops=[0, 0.5, 0.5, 1])),
+        ft.Container(height=8),
+    ]
     return ft.Container(
         ft.Column(
-            [tarjeta, ft.Text(f"Versión {__version__}", size=12, color=ft.Colors.ON_SURFACE_VARIANT)],
+            [*marca, tarjeta,
+             ft.Text(f"{APP_NOMBRE} · versión {__version__}", size=12, color=tema.TEXTO_MENU)],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             tight=True,
             scroll=ft.ScrollMode.AUTO,
@@ -41,6 +49,7 @@ def _marco(titulo: str, subtitulo: str, controles: list[ft.Control]) -> ft.Contr
         alignment=ft.Alignment.CENTER,
         expand=True,
         padding=24,
+        bgcolor=tema.NEGRO,
     )
 
 

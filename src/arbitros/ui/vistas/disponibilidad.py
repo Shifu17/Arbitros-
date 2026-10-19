@@ -21,6 +21,7 @@ from arbitros.ui.comunes import (
     mostrar_errores,
     tarjeta,
 )
+from arbitros.ui import tema
 
 SIN_REGISTRAR = "sin_registrar"
 OPCIONES = {
@@ -34,9 +35,9 @@ OPCIONES = {
 def colores(tipo: str | None) -> tuple[str, str]:
     """(fondo, texto) de la casilla según la disponibilidad."""
     return {
-        DISP_TODO_EL_DIA: (ft.Colors.PRIMARY_CONTAINER, ft.Colors.ON_PRIMARY_CONTAINER),
-        DISP_HORARIO: (ft.Colors.TERTIARY_CONTAINER, ft.Colors.ON_TERTIARY_CONTAINER),
-        DISP_NO_DISPONIBLE: (ft.Colors.ERROR_CONTAINER, ft.Colors.ON_ERROR_CONTAINER),
+        DISP_TODO_EL_DIA: (tema.EXITO_FONDO, tema.EXITO_TEXTO),
+        DISP_HORARIO: (tema.AVISO_FONDO, tema.AVISO_TEXTO),
+        DISP_NO_DISPONIBLE: (tema.PELIGRO_FONDO, tema.PELIGRO_TEXTO),
     }.get(tipo, (ft.Colors.SURFACE_CONTAINER_HIGHEST, ft.Colors.ON_SURFACE_VARIANT))
 
 

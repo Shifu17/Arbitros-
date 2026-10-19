@@ -17,7 +17,9 @@ from arbitros.services.jornadas import DatosPartido
 from arbitros.services.ligas import DatosLiga
 from arbitros.ui.app import App
 from arbitros.ui.shell import Shell
-from arbitros.ui.vistas import acceso, arbitros, disponibilidad, jornadas, ligas, respaldos, rol, usuarios
+from arbitros.ui.vistas import (
+    acceso, arbitros, cedulas, disponibilidad, jornadas, ligas, pagos, reportes, respaldos, rol, usuarios,
+)
 
 
 class PaginaFalsa:
@@ -206,3 +208,48 @@ def test_rol(app):
         vr._publicar()
         vr.refrescar()
     assert "**" in rol.whatsapp_a_markdown("*Hola* _bien_ ~no~")
+
+
+def test_pagos_cedulas_reportes(app, tmp_path):
+    shell = Shell(app)
+    shell.construir()
+    juan = app.arbitros.listar()[0]
+    linea = app.pagos.lineas()[0]
+    app.pagos.registrar_en_campo(linea.asignacion_id, 0, tarifa=30000)
+    vp = pagos.VistaPagos(app, shell)
+    vp.construir()
+    vp.filtro.periodo.value = "todo"
+    for pestana in ("arbitros", "campo", "historial"):
+        vp.pestana = pestana
+        vp.refrescar()
+    r = app.pagos.resumen_por_arbitro()[0]
+    vp._detalle(r)
+    vp._estado_cuenta(r)
+    vp._dialogo_pagar(juan.id)
+    pendientes = app.pagos.pendientes_de(juan.id)
+    if pendientes:
+        app.pagos.liquidar(juan.id, [l.asignacion_id for l in pendientes])
+    vp.pestana = "historial"
+    vp.refrescar()
+
+    p = app.cedulas.listar()[0].partido
+    foto = tmp_path / "c.png"
+    foto.write_bytes(b"png")
+    app.cedulas.subir(p.id, [foto])
+    vc = cedulas.VistaCedulas(app)
+    vc.construir()
+    for filtro in ("pendientes", "registradas", "excepciones", "todas"):
+        vc.filtro_estado = filtro
+        vc.refrescar()
+    fila = app.cedulas.listar()[0]
+    vc._excepcion(fila)
+
+    vr = reportes.VistaReportes(app, shell)
+    vr.construir()
+    vr.filtro.periodo.value = "todo"
+    vr.refrescar()
+    va = arbitros.VistaArbitros(app)
+    va.construir()
+    va._historial(juan)
+    for clave in ("inicio", "pagos", "cedulas", "reportes"):
+        shell.ir_a(clave)

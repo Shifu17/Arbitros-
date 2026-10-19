@@ -33,17 +33,18 @@ from arbitros.ui.comunes import (
     tarjeta,
 )
 from arbitros.ui.vistas.ligas import posiciones_marcadas, selector_posiciones
+from arbitros.ui import tema
 
-ANCHO_LISTA_JORNADAS = 290
+ANCHO_LISTA_JORNADAS = 250
 MOTIVOS_SUGERIDOS = ["Lluvia", "Cancha en mal estado", "Equipo no se presentó", "A petición de la liga"]
 
 
 def etiqueta_estado(estado: str) -> ft.Control:
     colores = {
-        ESTADO_PROGRAMADO: (ft.Colors.PRIMARY_CONTAINER, ft.Colors.ON_PRIMARY_CONTAINER),
+        ESTADO_PROGRAMADO: (tema.EXITO_FONDO, tema.EXITO_TEXTO),
         ESTADO_JUGADO: (ft.Colors.SURFACE_CONTAINER_HIGHEST, ft.Colors.ON_SURFACE_VARIANT),
-        ESTADO_SUSPENDIDO: (ft.Colors.TERTIARY_CONTAINER, ft.Colors.ON_TERTIARY_CONTAINER),
-        ESTADO_CANCELADO: (ft.Colors.ERROR_CONTAINER, ft.Colors.ON_ERROR_CONTAINER),
+        ESTADO_SUSPENDIDO: (tema.AVISO_FONDO, tema.AVISO_TEXTO),
+        ESTADO_CANCELADO: (tema.PELIGRO_FONDO, tema.PELIGRO_TEXTO),
     }
     fondo, texto = colores.get(estado, colores[ESTADO_JUGADO])
     return ft.Container(
@@ -159,7 +160,7 @@ class VistaJornadas:
             title=ft.Text(etiqueta_jornada(self.liga, j), weight=ft.FontWeight.W_500),
             subtitle=ft.Text(f"{rango_fechas(j.fecha_inicio, j.fecha_fin)} · {r.partidos} partidos"),
             selected=seleccionada,
-            selected_tile_color=ft.Colors.PRIMARY_CONTAINER,
+            selected_tile_color=ft.Colors.SECONDARY_CONTAINER,
             dense=True,
             on_click=lambda _, i=j.id: self.seleccionar(i),
         )
@@ -216,7 +217,8 @@ class VistaJornadas:
                     color=ft.Colors.ON_SURFACE_VARIANT),
         ]
         if partidos:
-            tabla = tarjeta(self._tabla_partidos(partidos))
+            # Desplazamiento horizontal por si la ventana es angosta
+            tabla = tarjeta(ft.Row([self._tabla_partidos(partidos)], scroll=ft.ScrollMode.AUTO))
         else:
             tabla = estado_vacio(
                 ft.Icons.SPORTS_SOCCER,
@@ -225,7 +227,9 @@ class VistaJornadas:
             )
         self.detalle.content = ft.Column(
             [
-                ft.Row([ft.Column(textos, spacing=2, expand=True), *acciones]),
+                ft.Column(textos, spacing=2),
+                # Botones en su propia fila (con salto de línea): en ventanas angostas no aplastan el título
+                ft.Row(acciones, wrap=True, spacing=8, run_spacing=8, visible=bool(acciones)),
                 ft.Row([ft.Text(self._resumen_partidos(partidos), color=ft.Colors.ON_SURFACE_VARIANT),
                         *self._resumen_asignacion(partidos, faltan)], spacing=16, wrap=True),
                 tabla,
@@ -268,48 +272,53 @@ class VistaJornadas:
         return ft.PopupMenuButton(items=items, icon=ft.Icons.MORE_VERT, tooltip="Acciones")
 
     def _tabla_partidos(self, partidos: list[Partido]) -> ft.Control:
-        con_categoria = any(p.categoria_id for p in partidos)
+        """Tabla compacta (5 columnas) para que quepa junto a la lista de jornadas."""
         filas = []
         for p in partidos:
             # Los partidos que no se juegan se ven tachados y atenuados
             estilo = None if p.se_juega else ft.TextStyle(decoration=ft.TextDecoration.LINE_THROUGH)
             color = None if p.se_juega else ft.Colors.ON_SURFACE_VARIANT
-            textos = [ft.Text(f"{p.local.nombre}  vs  {p.visitante.nombre}", weight=ft.FontWeight.W_500,
-                              style=estilo, color=color)]
+            detalle = " · ".join(x for x in ((p.campo.nombre if p.campo else ""),
+                                              (p.categoria.nombre if p.categoria else "")) if x)
+            textos = [
+                ft.Text(f"{p.local.nombre}  vs  {p.visitante.nombre}", weight=ft.FontWeight.W_600,
+                        style=estilo, color=color),
+                ft.Text(detalle, size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+            ]
             if p.motivo_estado:
-                textos.append(ft.Text(f"Motivo: {p.motivo_estado}", size=12, italic=True, color=ft.Colors.ERROR))
+                textos.append(ft.Text(f"Motivo: {p.motivo_estado}", size=12, italic=True, color=tema.PELIGRO_TEXTO))
+            cuando = ft.Column(
+                [ft.Text(p.hora.strftime("%H:%M"), size=16, weight=ft.FontWeight.BOLD, style=estilo, color=color),
+                 ft.Text(fecha_corta(p.fecha), size=12, color=ft.Colors.ON_SURFACE_VARIANT)],
+                spacing=0, tight=True, alignment=ft.MainAxisAlignment.CENTER,
+            )
             filas.append(
                 ft.DataRow(
                     cells=[
-                        ft.DataCell(ft.Text(fecha_corta(p.fecha), style=estilo, color=color)),
-                        ft.DataCell(ft.Text(p.hora.strftime("%H:%M"), weight=ft.FontWeight.W_500, style=estilo, color=color)),
-                        ft.DataCell(ft.Text(p.campo.nombre if p.campo else "—", style=estilo, color=color)),
-                        *([ft.DataCell(ft.Text(p.categoria.nombre if p.categoria else "—", color=color))]
-                          if con_categoria else []),
-                        ft.DataCell(ft.Column(textos, spacing=0, tight=True, alignment=ft.MainAxisAlignment.CENTER)),
+                        ft.DataCell(cuando),
+                        ft.DataCell(ft.Column(textos, spacing=1, tight=True, alignment=ft.MainAxisAlignment.CENTER,
+                                              width=210)),
                         ft.DataCell(self._celda_arbitros(p)),
-                        ft.DataCell(etiqueta_estado(p.estado)),
-                        ft.DataCell(self._menu_partido(p)),
+                        ft.DataCell(ft.Row([etiqueta_estado(p.estado), self._menu_partido(p)], spacing=0, tight=True)),
                     ]
                 )
             )
+        # Altura según el partido con más árbitros (una pastilla de ~28 px por posición)
+        max_pos = max((len(p.lista_posiciones) for p in partidos if p.se_juega), default=1)
+        alto_fila = max(64, 28 * max_pos + 20)
         return ft.DataTable(
             columns=[
-                ft.DataColumn(ft.Text("Fecha")),
                 ft.DataColumn(ft.Text("Hora")),
-                ft.DataColumn(ft.Text("Campo")),
-                *([ft.DataColumn(ft.Text("Categoría"))] if con_categoria else []),
                 ft.DataColumn(ft.Text("Partido")),
                 ft.DataColumn(ft.Text("Árbitros"),
                               tooltip="C = Central, A1/A2 = Asistentes, 4° = Cuarto árbitro. Clic para asignar."),
                 ft.DataColumn(ft.Text("Estado")),
-                ft.DataColumn(ft.Text("")),
             ],
             rows=filas,
             heading_row_color=ft.Colors.SURFACE_CONTAINER_HIGHEST,
-            column_spacing=24,
-            data_row_min_height=56,
-            data_row_max_height=150,
+            column_spacing=14,
+            data_row_min_height=alto_fila,
+            data_row_max_height=alto_fila,
         )
 
     # --- Diálogos de jornada --------------------------------------------
@@ -702,16 +711,18 @@ class VistaJornadas:
             return []
         controles = []
         if faltan:
-            controles.append(ft.Row([ft.Icon(ft.Icons.PERSON_SEARCH, color=ft.Colors.ERROR, size=18),
-                                     ft.Text(f"Faltan {faltan} árbitro(s) por asignar", color=ft.Colors.ERROR)],
+            controles.append(ft.Row([ft.Icon(ft.Icons.PERSON_SEARCH, color=tema.PELIGRO_TEXTO, size=18),
+                                     ft.Text("Falta 1 árbitro por asignar" if faltan == 1
+                                             else f"Faltan {faltan} árbitros por asignar", color=tema.PELIGRO_TEXTO)],
                                     spacing=4, tight=True))
         else:
-            controles.append(ft.Row([ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.PRIMARY, size=18),
-                                     ft.Text("Todos los árbitros asignados", color=ft.Colors.PRIMARY)],
+            controles.append(ft.Row([ft.Icon(ft.Icons.CHECK_CIRCLE, color=tema.EXITO_ICONO, size=18),
+                                     ft.Text("Todos los árbitros asignados", color=tema.EXITO_ICONO)],
                                     spacing=4, tight=True))
         if self.problemas:
-            controles.append(ft.Row([ft.Icon(ft.Icons.WARNING_AMBER, color=ft.Colors.TERTIARY, size=18),
-                                     ft.Text(f"{len(self.problemas)} asignación(es) con avisos", color=ft.Colors.TERTIARY)],
+            controles.append(ft.Row([ft.Icon(ft.Icons.WARNING_AMBER, color=tema.AVISO_ICONO, size=18),
+                                     ft.Text("1 asignación con avisos" if len(self.problemas) == 1
+                                             else f"{len(self.problemas)} asignaciones con avisos", color=tema.AVISO_ICONO)],
                                     spacing=4, tight=True))
         return controles
 
@@ -726,15 +737,15 @@ class VistaJornadas:
             a = asignadas.get(pos)
             if a is None:
                 fondo, color, texto, icono, ayuda = (
-                    ft.Colors.ERROR_CONTAINER, ft.Colors.ON_ERROR_CONTAINER, "Falta", ft.Icons.PERSON_ADD_ALT_1,
+                    tema.PELIGRO_FONDO, tema.PELIGRO_TEXTO, "Falta", ft.Icons.PERSON_ADD_ALT_1,
                     f"{POSICIONES[pos]}: sin asignar")
             elif a.id in self.problemas:
                 fondo, color, texto, icono, ayuda = (
-                    ft.Colors.TERTIARY_CONTAINER, ft.Colors.ON_TERTIARY_CONTAINER, a.arbitro.apodo or a.arbitro.nombre,
+                    tema.AVISO_FONDO, tema.AVISO_TEXTO, a.arbitro.apodo or a.arbitro.nombre,
                     ft.Icons.WARNING_AMBER, "\n".join(self.problemas[a.id]))
             else:
                 fondo, color, texto, icono, ayuda = (
-                    ft.Colors.PRIMARY_CONTAINER, ft.Colors.ON_PRIMARY_CONTAINER, a.arbitro.apodo or a.arbitro.nombre,
+                    tema.EXITO_FONDO, tema.EXITO_TEXTO, a.arbitro.apodo or a.arbitro.nombre,
                     None, f"{POSICIONES[pos]}: {a.arbitro.nombre}")
             fila = [ft.Text(f"{POSICIONES_CORTAS[pos]}", size=11, weight=ft.FontWeight.BOLD, color=color),
                     ft.Text(texto, size=12, color=color, max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)]
@@ -778,9 +789,9 @@ class VistaJornadas:
         lista = ft.ListView(spacing=2, height=380)
 
         estilos = {
-            LIBRE: (ft.Icons.CHECK_CIRCLE, ft.Colors.PRIMARY, "Disponible"),
+            LIBRE: (ft.Icons.CHECK_CIRCLE, tema.EXITO_ICONO, "Disponible"),
             SIN_REGISTRAR: (ft.Icons.HELP_OUTLINE, ft.Colors.ON_SURFACE_VARIANT, "No ha dicho su disponibilidad"),
-            CONFLICTO: (ft.Icons.WARNING_AMBER, ft.Colors.TERTIARY, "Con avisos"),
+            CONFLICTO: (ft.Icons.WARNING_AMBER, tema.AVISO_ICONO, "Con avisos"),
             NO_DISPONIBLE: (ft.Icons.BLOCK, ft.Colors.ERROR, "No disponible"),
         }
 
@@ -843,7 +854,7 @@ class VistaJornadas:
             self.page.show_dialog(
                 ft.AlertDialog(
                     modal=True,
-                    icon=ft.Icon(ft.Icons.WARNING_AMBER, color=ft.Colors.TERTIARY),
+                    icon=ft.Icon(ft.Icons.WARNING_AMBER, color=tema.AVISO_ICONO),
                     title=ft.Text(f"¿Asignar a {c.arbitro.nombre}?"),
                     content=ft.Column([ft.Text(f"• {a}") for a in avisos], tight=True, width=ANCHO_DIALOGO),
                     actions=[

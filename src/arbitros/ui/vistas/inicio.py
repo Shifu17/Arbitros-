@@ -1,7 +1,8 @@
 import flet as ft
 
-from arbitros import __version__
+from arbitros.services.dinero import formatear_monto
 from arbitros.ui.comunes import encabezado, fecha_legible, hace_cuanto, tarjeta
+from arbitros.ui import tema
 
 
 def _dato(icono, titulo: str, valor: str, detalle: str = "") -> ft.Control:
@@ -30,7 +31,7 @@ def _paso(numero: int, texto: str, hecho: bool, accion: ft.Control | None = None
         [
             ft.Icon(
                 ft.Icons.CHECK_CIRCLE if hecho else ft.Icons.RADIO_BUTTON_UNCHECKED,
-                color=ft.Colors.PRIMARY if hecho else ft.Colors.OUTLINE,
+                color=tema.EXITO_ICONO if hecho else ft.Colors.OUTLINE,
             ),
             ft.Text(f"{numero}. {texto}", expand=True),
             accion or ft.Container(),
@@ -42,6 +43,8 @@ def construir(app, shell) -> ft.Control:
     activos = app.arbitros.contar_activos()
     ligas = app.ligas.listar()
     hay_partidos = any(j.partidos for r in ligas for j in app.jornadas.listar(r.liga.id))
+    pendientes_cedulas = app.cedulas.contar_pendientes()
+    pendiente_pagos = sum(r.pendiente for r in app.pagos.resumen_por_arbitro())
     ultimo = app.respaldos.ultimo()
     respaldo_valor = hace_cuanto(ultimo.fecha).capitalize() if ultimo else "Ninguno"
     respaldo_detalle = fecha_legible(ultimo.fecha) if ultimo else "Crea uno en Respaldos"
@@ -77,7 +80,12 @@ def construir(app, shell) -> ft.Control:
             False,
             ft.TextButton("Ir al Rol", on_click=lambda _: shell.ir_a("rol")),
         ),
-        _paso(6, "Registra pagos y cédulas (fase 5)", False),
+        _paso(
+            6,
+            "Después de los partidos, registra pagos y sube las cédulas",
+            bool(pendientes_cedulas == 0 and app.asignaciones.hay_asignaciones()),
+            ft.TextButton("Ir a Pagos", on_click=lambda _: shell.ir_a("pagos")),
+        ),
     ]
 
     return ft.Column(
@@ -87,8 +95,9 @@ def construir(app, shell) -> ft.Control:
                 [
                     _dato(ft.Icons.PEOPLE, "Árbitros activos", str(activos)),
                     _dato(ft.Icons.EMOJI_EVENTS, "Ligas y torneos activos", str(len(ligas))),
+                    _dato(ft.Icons.PAYMENTS, "Pagos pendientes", formatear_monto(pendiente_pagos)),
+                    _dato(ft.Icons.DESCRIPTION, "Cédulas pendientes", str(pendientes_cedulas)),
                     _dato(ft.Icons.BACKUP, "Último respaldo", respaldo_valor, respaldo_detalle),
-                    _dato(ft.Icons.INFO_OUTLINE, "Versión", __version__),
                 ],
                 spacing=16,
             ),

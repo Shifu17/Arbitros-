@@ -11,6 +11,7 @@ from arbitros.services.jornadas import etiqueta_jornada
 from arbitros.services.rol import AGRUPAR_ARBITRO, AGRUPAR_CAMPO, AGRUPAR_HORA, OpcionesRol
 from arbitros.services.rol_imagen import generar_png
 from arbitros.ui.comunes import ANCHO_DIALOGO, avisar, encabezado, estado_vacio, fecha_legible, rango_fechas, tarjeta
+from arbitros.ui import tema
 
 log = logging.getLogger(__name__)
 
@@ -133,9 +134,9 @@ class VistaRol:
         agrupar = ft.SegmentedButton(
             selected=[self.opciones.agrupar],
             segments=[
-                ft.Segment(value=AGRUPAR_CAMPO, label=ft.Text("Por campo")),
-                ft.Segment(value=AGRUPAR_HORA, label=ft.Text("Por hora")),
-                ft.Segment(value=AGRUPAR_ARBITRO, label=ft.Text("Por árbitro")),
+                ft.Segment(value=AGRUPAR_CAMPO, label=ft.Text("Campo")),
+                ft.Segment(value=AGRUPAR_HORA, label=ft.Text("Hora")),
+                ft.Segment(value=AGRUPAR_ARBITRO, label=ft.Text("Árbitro")),
             ],
         )
 
@@ -179,7 +180,7 @@ class VistaRol:
                                          on_click=lambda _: self._publicar(), width=ANCHO_OPCIONES))
         return ft.Column(
             [
-                ft.Text("Organizar", weight=ft.FontWeight.W_500),
+                ft.Text("Organizar por", weight=ft.FontWeight.W_500),
                 agrupar,
                 self.selector_categoria,
                 interruptor("Usar apodos de los árbitros", "usar_apodos"),
@@ -259,7 +260,7 @@ class VistaRol:
         controles = []
         if datos.faltantes:
             controles.append(self._aviso(
-                ft.Icons.PERSON_SEARCH, datos.texto_faltantes, ft.Colors.ERROR_CONTAINER, ft.Colors.ON_ERROR_CONTAINER,
+                ft.Icons.PERSON_SEARCH, datos.texto_faltantes, tema.PELIGRO_FONDO, tema.PELIGRO_TEXTO,
                 ft.TextButton("Ir a asignar", on_click=lambda _: self.shell.ir_a("jornadas"))))
         cambios = self.app.rol.cambios(self.jornada_id)
         jornada = self.app.jornadas.obtener(self.jornada_id)
@@ -272,12 +273,12 @@ class VistaRol:
         elif not cambios:
             controles.append(self._aviso(
                 ft.Icons.MARK_EMAIL_READ, f"Enviado el {fecha_legible(jornada.rol_publicado_en)}. Sin cambios desde entonces.",
-                ft.Colors.PRIMARY_CONTAINER, ft.Colors.ON_PRIMARY_CONTAINER))
+                tema.EXITO_FONDO, tema.EXITO_TEXTO))
         else:
             detalle = ft.Column([ft.Text(sin_formato(c), size=13) for c in cambios], spacing=2)
             controles.append(tarjeta(ft.Column(
                 [
-                    ft.Row([ft.Icon(ft.Icons.SYNC_PROBLEM, color=ft.Colors.TERTIARY),
+                    ft.Row([ft.Icon(ft.Icons.SYNC_PROBLEM, color=tema.AVISO_ICONO),
                             ft.Text(f"{len(cambios)} cambio(s) desde que enviaste el rol "
                                     f"({fecha_legible(jornada.rol_publicado_en)})", weight=ft.FontWeight.W_600)]),
                     detalle,
@@ -350,7 +351,7 @@ class VistaRol:
         mensajes = self.app.rol.mensajes_individuales(self.jornada_id)
 
         def fila(arbitro, texto, enlace) -> ft.Control:
-            enviado = ft.Icon(ft.Icons.CHECK_CIRCLE, color=ft.Colors.PRIMARY, visible=False)
+            enviado = ft.Icon(ft.Icons.CHECK_CIRCLE, color=tema.EXITO_ICONO, visible=False)
 
             def marcar(_):
                 enviado.visible = True
