@@ -30,11 +30,30 @@ TIPO_TORNEO = "torneo"  # torneo corto de pocos días; sus "jornadas" son días
 # Posiciones arbitrales, en orden de presentación. Se guardan como CSV de claves.
 POSICIONES = {
     "central": "Central",
+    "central_2": "Central 2",
     "asistente_1": "Asistente 1",
     "asistente_2": "Asistente 2",
     "cuarto": "Cuarto árbitro",
+    "anotador": "Anotador",
 }
-POSICIONES_CORTAS = {"central": "C", "asistente_1": "A1", "asistente_2": "A2", "cuarto": "4°"}
+POSICIONES_CORTAS = {"central": "C", "central_2": "C2", "asistente_1": "A1", "asistente_2": "A2", "cuarto": "4°",
+                     "anotador": "An"}
+
+# Tipo de partido. Cada uno trae sus posiciones por defecto (se pueden ajustar).
+FUTBOL_11 = "futbol_11"
+MODALIDADES = {
+    FUTBOL_11: ("Fútbol 11", ["central", "asistente_1", "asistente_2"]),
+    "futbol_7": ("Fútbol 7", ["central"]),
+    "bardas": ("Fútbol de bardas", ["central", "central_2", "anotador"]),
+}
+
+
+def nombre_modalidad(clave: str | None) -> str:
+    return MODALIDADES.get(clave or FUTBOL_11, MODALIDADES[FUTBOL_11])[0]
+
+
+def posiciones_de_modalidad(clave: str | None) -> list[str]:
+    return list(MODALIDADES.get(clave or FUTBOL_11, MODALIDADES[FUTBOL_11])[1])
 
 ESTADO_PROGRAMADO = "programado"
 ESTADO_JUGADO = "jugado"
@@ -114,6 +133,7 @@ class Liga(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     nombre: Mapped[str] = mapped_column(String(120), unique=True)
     tipo: Mapped[str] = mapped_column(String(20), default=TIPO_LIGA)
+    modalidad: Mapped[str] = mapped_column(String(20), default=FUTBOL_11, server_default=FUTBOL_11)
     posiciones_defecto: Mapped[str] = mapped_column(String(100), default="central")
     activa: Mapped[bool] = mapped_column(Boolean, default=True)
     notas: Mapped[str | None] = mapped_column(Text)
@@ -137,7 +157,8 @@ class Categoria(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     liga_id: Mapped[int] = mapped_column(ForeignKey("ligas.id", ondelete="CASCADE"), index=True)
     nombre: Mapped[str] = mapped_column(String(120))
-    # None = usa las posiciones por defecto de la liga
+    # None = usa el tipo de partido y las posiciones por defecto de la liga
+    modalidad: Mapped[str | None] = mapped_column(String(20))
     posiciones_defecto: Mapped[str | None] = mapped_column(String(100))
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
 
@@ -211,6 +232,7 @@ class Partido(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     jornada_id: Mapped[int] = mapped_column(ForeignKey("jornadas.id", ondelete="CASCADE"), index=True)
     categoria_id: Mapped[int | None] = mapped_column(ForeignKey("categorias.id", ondelete="RESTRICT"), index=True)
+    modalidad: Mapped[str] = mapped_column(String(20), default=FUTBOL_11, server_default=FUTBOL_11)
     fecha: Mapped[date] = mapped_column(Date)
     hora: Mapped[time] = mapped_column(Time)
     campo_id: Mapped[int | None] = mapped_column(ForeignKey("campos.id", ondelete="RESTRICT"))

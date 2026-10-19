@@ -104,7 +104,8 @@ def test_tarifas_y_posiciones(ligas):
         liga.id, ["asistente_2", "central"], {"central": 35000, "asistente_1": 20000}
     )
     assert ligas.obtener(liga.id).lista_posiciones == ["central", "asistente_2"]
-    assert ligas.tarifas(liga.id) == {"central": 35000, "asistente_1": 20000, "asistente_2": 0, "cuarto": 0}
+    assert ligas.tarifas(liga.id) == {"central": 35000, "central_2": 0, "asistente_1": 20000, "asistente_2": 0,
+                                      "cuarto": 0, "anotador": 0}
     with pytest.raises(ErrorValidacion):
         ligas.configurar_posiciones_y_tarifas(liga.id, [], {})
 

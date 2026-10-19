@@ -16,6 +16,8 @@ from arbitros.db.models import (
     ESTADO_PROGRAMADO,
     ESTADOS_PARTIDO,
     ESTADOS_SIN_JUEGO,
+    FUTBOL_11,
+    MODALIDADES,
     Asignacion,
     Campo,
     Categoria,
@@ -49,6 +51,7 @@ class DatosPartido:
     notas: str = ""
     motivo_estado: str = ""
     categoria_id: int | None = None
+    modalidad: str | None = None  # None = la de la categoría o la de la liga
 
 
 def etiqueta_jornada(liga: Liga, jornada: Jornada) -> str:
@@ -228,6 +231,7 @@ class JornadaService:
             self._validar_partido(s, jornada, datos, None, forzar)
             partido = Partido(jornada_id=jornada_id)
             self._aplicar(partido, datos)
+            partido.modalidad = self._modalidad(s, jornada, datos)
             s.add(partido)
             s.flush()
             partido_id = partido.id
@@ -241,6 +245,7 @@ class JornadaService:
             jornada = s.get(Jornada, partido.jornada_id)
             self._validar_partido(s, jornada, datos, partido_id, forzar)
             self._aplicar(partido, datos)
+            partido.modalidad = self._modalidad(s, jornada, datos)
             # Si se quitó una posición (p. ej. ya no lleva cuarto árbitro), se libera su asignación
             s.execute(delete(Asignacion).where(
                 Asignacion.partido_id == partido_id, Asignacion.posicion.not_in(partido.lista_posiciones)))
@@ -264,6 +269,14 @@ class JornadaService:
             partido = s.get(Partido, partido_id)
             if partido:
                 s.delete(partido)
+
+    @staticmethod
+    def _modalidad(s, jornada: Jornada, d: DatosPartido) -> str:
+        if d.modalidad:
+            return d.modalidad
+        categoria = s.get(Categoria, d.categoria_id) if d.categoria_id else None
+        liga = s.get(Liga, jornada.liga_id)
+        return (categoria.modalidad if categoria else None) or liga.modalidad or FUTBOL_11
 
     @staticmethod
     def _aplicar(partido: Partido, d: DatosPartido) -> None:
@@ -296,6 +309,8 @@ class JornadaService:
             errores["posiciones"] = "Marca al menos una posición"
         if d.estado not in ESTADOS_PARTIDO:
             errores["estado"] = "Estado inválido"
+        if d.modalidad and d.modalidad not in MODALIDADES:
+            errores["modalidad"] = "Tipo de partido inválido"
         categorias_liga = s.scalar(
             select(func.count(Categoria.id)).where(Categoria.liga_id == jornada.liga_id, Categoria.activo.is_(True))
         )

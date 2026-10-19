@@ -10,7 +10,7 @@ from datetime import date, datetime, time
 from urllib.parse import quote
 
 from arbitros.db.database import Database
-from arbitros.db.models import POSICIONES, Arbitro, Jornada, Liga
+from arbitros.db.models import FUTBOL_11, POSICIONES, Arbitro, Jornada, Liga, nombre_modalidad
 from arbitros.services.arbitros import enlace_whatsapp
 from arbitros.services.asignaciones import AsignacionService
 from arbitros.services.errores import ErrorValidacion
@@ -57,6 +57,7 @@ class PartidoEnRol:
     estado: str
     motivo: str | None
     arbitros: list[ArbitroEnRol] = field(default_factory=list)
+    modalidad: str | None = None  # nombre legible; None = fútbol 11 (no se menciona)
 
     @property
     def equipos(self) -> str:
@@ -112,6 +113,7 @@ class RolService:
                 categoria=p.categoria.nombre if p.categoria else None,
                 local=p.local.nombre, visitante=p.visitante.nombre, se_juega=p.se_juega, estado=p.estado,
                 motivo=p.motivo_estado,
+                modalidad=nombre_modalidad(p.modalidad) if p.modalidad and p.modalidad != FUTBOL_11 else None,
                 arbitros=[ArbitroEnRol(pos, del_partido[pos].arbitro if pos in del_partido else None)
                           for pos in p.lista_posiciones],
             ))
@@ -184,13 +186,15 @@ class RolService:
             partes.append(f"🏟️ {p.campo}")
         if p.categoria:
             partes.append(f"_{p.categoria}_")
+        if p.modalidad:
+            partes.append(f"_{p.modalidad}_")
         lineas = []
         if partes:
             lineas.append(" · ".join(partes))
         lineas.append(f"*{p.equipos}*")
         for a in p.arbitros:
             nombre = a.nombre(opciones.usar_apodos)
-            icono = "👤" if a.posicion == "central" else "🚩"
+            icono = {"central": "👤", "central_2": "👤", "anotador": "📝"}.get(a.posicion, "🚩")
             if a.arbitro is None:
                 nombre = f"_{nombre}_"
             lineas.append(f"{icono} {POSICIONES[a.posicion]}: {nombre}")

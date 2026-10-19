@@ -9,10 +9,12 @@ from arbitros.db.models import (
     ESTADO_SUSPENDIDO,
     ESTADOS_PARTIDO,
     ESTADOS_SIN_JUEGO,
+    FUTBOL_11,
     POSICIONES,
     POSICIONES_CORTAS,
     Liga,
     Partido,
+    nombre_modalidad,
 )
 from arbitros.services.asignaciones import CONFLICTO, LIBRE, NO_DISPONIBLE, SIN_REGISTRAR, Candidato
 from arbitros.services.errores import AvisosPendientes, ErrorValidacion
@@ -32,7 +34,7 @@ from arbitros.ui.comunes import (
     rango_fechas,
     tarjeta,
 )
-from arbitros.ui.vistas.ligas import posiciones_marcadas, selector_posiciones
+from arbitros.ui.vistas.ligas import posiciones_marcadas, selector_modalidad, selector_posiciones
 from arbitros.ui import tema
 
 ANCHO_LISTA_JORNADAS = 250
@@ -279,7 +281,9 @@ class VistaJornadas:
             estilo = None if p.se_juega else ft.TextStyle(decoration=ft.TextDecoration.LINE_THROUGH)
             color = None if p.se_juega else ft.Colors.ON_SURFACE_VARIANT
             detalle = " · ".join(x for x in ((p.campo.nombre if p.campo else ""),
-                                              (p.categoria.nombre if p.categoria else "")) if x)
+                                              (p.categoria.nombre if p.categoria else ""),
+                                              (nombre_modalidad(p.modalidad) if p.modalidad != FUTBOL_11 else ""))
+                                 if x)
             textos = [
                 ft.Text(f"{p.local.nombre}  vs  {p.visitante.nombre}", weight=ft.FontWeight.W_600,
                         style=estilo, color=color),
@@ -426,14 +430,19 @@ class VistaJornadas:
             options=opciones(categorias),
             value=str(categoria_inicial) if categoria_inicial else (str(categorias[0].id) if len(categorias) == 1 else None),
             visible=bool(categorias),
-            width=ANCHO_DIALOGO + 160,
+            expand=True,
         )
 
+        actuales = {partido.local_id, partido.visitante_id} if partido else set()
+
         def equipos_de(categoria_id: int | None) -> list:
-            """Equipos de la categoría elegida (más los que no tienen categoría)."""
+            """Equipos de la categoría elegida (más los que no tienen categoría).
+
+            Al editar, los equipos que ya tiene el partido siempre aparecen aunque sean de otra categoría.
+            """
             if not categoria_id:
                 return equipos
-            return [e for e in equipos if e.categoria_id in (categoria_id, None)]
+            return [e for e in equipos if e.categoria_id in (categoria_id, None) or e.id in actuales]
 
         cat_actual = int(categoria.value) if categoria.value else None
         local = ft.Dropdown(label="Equipo local *", options=opciones(equipos_de(cat_actual)), enable_filter=True,
@@ -449,9 +458,16 @@ class VistaJornadas:
             cat = next((c for c in categorias if c.id == categoria_id), None)
             return self.app.ligas.posiciones_para(self.liga, cat)
 
+        def modalidad_defecto(categoria_id: int | None) -> str:
+            cat = next((c for c in categorias if c.id == categoria_id), None)
+            return self.app.ligas.modalidad_para(self.liga, cat)
+
         posiciones, casillas, error_pos = selector_posiciones(
             partido.lista_posiciones if partido else posiciones_defecto(cat_actual)
         )
+        # Fútbol 11 / Fútbol 7 / Bardas: al cambiarlo se marcan sus árbitros por defecto
+        modalidad = selector_modalidad(partido.modalidad if partido else modalidad_defecto(cat_actual), casillas,
+                                       self.page, al_cambiar=lambda _: al_cambiar(), width=230)
         estado = ft.Dropdown(
             label="Estado",
             value=partido.estado if partido else ESTADO_PROGRAMADO,
@@ -474,7 +490,8 @@ class VistaJornadas:
         boton_otro = ft.OutlinedButton("Guardar y agregar otro", visible=partido is None)
         forzar = {"activo": False}
 
-        for c in (categoria, local, visitante, campo, fecha.campo, hora.campo, estado, motivo, notas, *casillas.values()):
+        for c in (categoria, modalidad, local, visitante, campo, fecha.campo, hora.campo, estado, motivo, notas,
+                  *casillas.values()):
             c.disabled = not editable
 
         def datos() -> DatosPartido:
@@ -489,6 +506,7 @@ class VistaJornadas:
                 notas=notas.value or "",
                 motivo_estado=motivo.value or "",
                 categoria_id=int(categoria.value) if categoria.value else None,
+                modalidad=modalidad.value,
             )
 
         def al_cambiar(_=None):
@@ -520,7 +538,8 @@ class VistaJornadas:
                 if dd.value not in ids:
                     dd.value = None
             if partido is None:
-                # En un partido nuevo, precargar las posiciones de esa categoría
+                # En un partido nuevo, precargar el tipo y las posiciones de esa categoría
+                modalidad.value = modalidad_defecto(cat_id)
                 marcadas = posiciones_defecto(cat_id)
                 for clave, chk in casillas.items():
                     chk.value = clave in marcadas
@@ -578,7 +597,7 @@ class VistaJornadas:
                 title=ft.Text(f"{titulo} · {etiqueta_jornada(self.liga, jornada)}"),
                 content=ft.Column(
                     [
-                        categoria,
+                        ft.Row([categoria, modalidad], spacing=12),
                         ft.Row([local, ft.Text("vs", weight=ft.FontWeight.BOLD), visitante],
                                vertical_alignment=ft.CrossAxisAlignment.CENTER),
                         ft.Row([fecha.campo, hora.campo], spacing=12),

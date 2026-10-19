@@ -111,7 +111,7 @@ class VistaCedulas:
             acciones = []
             if self.app.es_admin and f.estado != NO_REQUERIDA:
                 acciones.append(ft.FilledTonalButton("Subir", icon=ft.Icons.UPLOAD_FILE,
-                                                     on_click=lambda _, f=f: self._subir(f)))
+                                                     on_click=self._manejador_subir(f)))
                 if f.estado == EXCEPCION:
                     acciones.append(ft.IconButton(ft.Icons.UNDO, tooltip="Quitar excepción",
                                                   on_click=lambda _, f=f: self._quitar_excepcion(f)))
@@ -158,6 +158,14 @@ class VistaCedulas:
             avisar(self.page, "No se encontró el archivo en la carpeta de documentos.", error=True)
             return
         os.startfile(ruta)
+
+    def _manejador_subir(self, f: FilaCedula):
+        # Flet solo espera (await) los manejadores que son funciones async; una lambda que
+        # llama a una función async crea la corrutina y nunca la ejecuta (el clic no hace nada).
+        async def manejador(_):
+            await self._subir(f)
+
+        return manejador
 
     async def _subir(self, f: FilaCedula) -> None:
         archivos = await self.app.selector_archivos.pick_files(

@@ -124,3 +124,16 @@ def test_imagen_png(ctx):
     assert png[:8] == b"\x89PNG\r\n\x1a\n" and len(png) > 5000
     png_hora = generar_png(datos, OpcionesRol(agrupar=AGRUPAR_HORA))
     assert png_hora[:4] == b"\x89PNG"
+
+
+def test_partido_de_bardas_en_rol(ctx):
+    p = ctx["p2"]
+    ctx["jornadas"].actualizar_partido(p.id, DatosPartido(SAB, p.hora, p.local_id, p.visitante_id, p.campo_id,
+                                                          ["central", "central_2", "anotador"],
+                                                          categoria_id=p.categoria_id, modalidad="bardas"),
+                                       forzar=True)
+    ctx["asig"].asignar(p.id, "anotador", ctx["ana"].id, forzar=True)
+    texto = ctx["rol"].texto(ctx["j"].id, OpcionesRol())
+    assert "_Fútbol de bardas_" in texto and "📝 Anotador: Ana López" in texto and "Central 2: _Por asignar_" in texto
+    png = generar_png(ctx["rol"].datos(ctx["j"].id), OpcionesRol())
+    assert png.startswith(bytes([0x89]) + b"PNG")

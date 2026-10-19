@@ -22,7 +22,10 @@ y la app funciona sin internet (salvo buscar actualizaciones y abrir WhatsApp).
 ### 3. Ligas y torneos
 - Dos tipos: **liga** (temporada con jornadas) y **torneo corto** (1 a 3 días, días editables).
 - Cada una tiene su **catálogo de equipos** y **campos**, y **tarifas por posición**.
-- Posiciones por defecto por liga (Central, Asistente 1, Asistente 2, Cuarto árbitro);
+- **Tipo de partido**: Fútbol 11 (Central + 2 asistentes), Fútbol 7 (Central, opcional Central 2) y
+  Fútbol de bardas (Central, Central 2 y Anotador). La liga tiene uno por defecto, cada categoría puede
+  tener el suyo y cada partido se puede cambiar.
+- Posiciones por defecto por liga (Central, Central 2, Asistente 1, Asistente 2, Cuarto árbitro, Anotador);
   **cada partido puede sobrescribirlas** (p. ej. sólo central, o con cuarto árbitro).
 - **Categorías o sub-ligas** dentro de una liga (Veteranos, Premier A/B, Oro, Plata…): cada equipo
   pertenece a una; la jornada es de toda la liga y cada partido indica su categoría. Cada categoría

@@ -232,3 +232,39 @@ def test_partidos_entre_solo_ligas_activas(ligas, svc, liga):
     assert svc.partidos_entre(DOM, DOM) == []
     ligas.cambiar_activa(liga.id, False)
     assert svc.partidos_entre(SAB, DOM) == []
+
+
+def test_tipo_de_partido_por_liga_categoria_y_partido(ligas, svc, liga):
+    eq, ca = _ids(ligas, liga)
+    bardas = ligas.categorias.crear(liga.id, "Bardas Libre")
+    ligas.configurar_categoria(bardas.id, ["central", "central_2", "anotador"], None, modalidad="bardas")
+    fut7 = ligas.categorias.crear(liga.id, "Fut 7")
+    j = svc.crear(liga.id, SAB)
+    # Sin indicar tipo: toma el de la categoría
+    d = _partido(eq, ca)
+    d.categoria_id = bardas.id
+    assert svc.crear_partido(j.id, d).modalidad == "bardas"
+    # o el de la liga (Fútbol 11 por defecto)
+    d2 = _partido(eq, ca, "Águilas", "Toros", campo="Campo 2")
+    d2.categoria_id = fut7.id
+    p2 = svc.crear_partido(j.id, d2)
+    assert p2.modalidad == "futbol_11"
+    # Se puede cambiar en el partido
+    d2.modalidad = "futbol_7"
+    d2.posiciones = ["central", "central_2"]
+    actualizado = svc.actualizar_partido(p2.id, d2, forzar=True)
+    assert (actualizado.modalidad, actualizado.lista_posiciones) == ("futbol_7", ["central", "central_2"])
+    d2.modalidad = "voleibol"
+    with pytest.raises(ErrorValidacion):
+        svc.actualizar_partido(p2.id, d2, forzar=True)
+    cat = next(c for c in ligas.categorias.listar(liga.id) if c.id == bardas.id)
+    assert ligas.modalidad_para(ligas.obtener(liga.id), cat) == "bardas"
+
+
+def test_posiciones_de_modalidades():
+    from arbitros.db.models import POSICIONES, posiciones_de_modalidad
+
+    assert posiciones_de_modalidad("bardas") == ["central", "central_2", "anotador"]
+    assert posiciones_de_modalidad("futbol_7") == ["central"]
+    assert posiciones_de_modalidad(None) == ["central", "asistente_1", "asistente_2"]
+    assert {"central_2", "anotador"} <= set(POSICIONES)

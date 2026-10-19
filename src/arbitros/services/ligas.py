@@ -7,6 +7,8 @@ from sqlalchemy import delete, func, select
 
 from arbitros.db.database import Database
 from arbitros.db.models import (
+    FUTBOL_11,
+    MODALIDADES,
     POSICIONES,
     TIPO_LIGA,
     TIPO_TORNEO,
@@ -32,6 +34,7 @@ class DatosLiga:
     tipo: str = TIPO_LIGA
     posiciones: list[str] = field(default_factory=lambda: ["central"])
     notas: str = ""
+    modalidad: str = FUTBOL_11
 
 
 @dataclass
@@ -182,6 +185,7 @@ class LigaService:
             liga = Liga(
                 nombre=nombre,
                 tipo=datos.tipo,
+                modalidad=datos.modalidad,
                 posiciones_defecto=posiciones_a_csv(datos.posiciones),
                 notas=(datos.notas or "").strip() or None,
             )
@@ -215,7 +219,10 @@ class LigaService:
             guardadas = {t.posicion: t.monto_centavos for t in s.scalars(select(Tarifa).where(Tarifa.liga_id == liga_id))}
         return {p: guardadas.get(p, 0) for p in POSICIONES}
 
-    def configurar_posiciones_y_tarifas(self, liga_id: int, posiciones: list[str], tarifas: dict[str, int]) -> None:
+    def configurar_posiciones_y_tarifas(self, liga_id: int, posiciones: list[str], tarifas: dict[str, int],
+                                        modalidad: str | None = None) -> None:
+        if modalidad is not None and modalidad not in MODALIDADES:
+            raise ErrorValidacion("Tipo de partido inválido.")
         if not posiciones_a_csv(posiciones):
             raise ErrorValidacion("Marca al menos una posición por defecto.")
         if any(v < 0 for v in tarifas.values()):
@@ -225,6 +232,8 @@ class LigaService:
             if not liga:
                 raise ErrorValidacion("La liga ya no existe.")
             liga.posiciones_defecto = posiciones_a_csv(posiciones)
+            if modalidad is not None:
+                liga.modalidad = modalidad
             for posicion, monto in tarifas.items():
                 if posicion in POSICIONES:
                     s.merge(Tarifa(liga_id=liga_id, posicion=posicion, monto_centavos=monto))
@@ -239,9 +248,12 @@ class LigaService:
         return {p: filas.get(p, 0) for p in POSICIONES} if filas else None
 
     def configurar_categoria(
-        self, categoria_id: int, posiciones: list[str] | None, tarifas: dict[str, int] | None
+        self, categoria_id: int, posiciones: list[str] | None, tarifas: dict[str, int] | None,
+        modalidad: str | None = None,
     ) -> None:
-        """`None` en posiciones o tarifas = usar lo de la liga."""
+        """`None` en posiciones, tarifas o modalidad = usar lo de la liga."""
+        if modalidad is not None and modalidad not in MODALIDADES:
+            raise ErrorValidacion("Tipo de partido inválido.")
         if posiciones is not None and not posiciones_a_csv(posiciones):
             raise ErrorValidacion("Marca al menos una posición por defecto.")
         if tarifas and any(v < 0 for v in tarifas.values()):
@@ -251,6 +263,7 @@ class LigaService:
             if not categoria:
                 raise ErrorValidacion("La categoría ya no existe.")
             categoria.posiciones_defecto = posiciones_a_csv(posiciones) if posiciones is not None else None
+            categoria.modalidad = modalidad
             s.execute(delete(TarifaCategoria).where(TarifaCategoria.categoria_id == categoria_id))
             for posicion, monto in (tarifas or {}).items():
                 if posicion in POSICIONES:
@@ -259,6 +272,10 @@ class LigaService:
     def posiciones_para(self, liga: Liga, categoria: Categoria | None) -> list[str]:
         """Posiciones por defecto de un partido nuevo: las de la categoría si tiene, si no las de la liga."""
         return (categoria.lista_posiciones if categoria else None) or liga.lista_posiciones
+
+    def modalidad_para(self, liga: Liga, categoria: Categoria | None) -> str:
+        """Tipo de partido por defecto: el de la categoría si tiene, si no el de la liga."""
+        return (categoria.modalidad if categoria else None) or liga.modalidad or FUTBOL_11
 
     def tarifa_para(self, liga_id: int, categoria_id: int | None, posicion: str) -> int:
         """Centavos que se pagan por `posicion`: tarifa de la categoría si tiene propias, si no la de la liga."""
@@ -282,6 +299,8 @@ class LigaService:
                 errores["nombre"] = "Ya existe una liga o torneo con ese nombre"
         if datos.tipo not in (TIPO_LIGA, TIPO_TORNEO):
             errores["tipo"] = "Tipo inválido"
+        if datos.modalidad not in MODALIDADES:
+            errores["modalidad"] = "Tipo de partido inválido"
         if not posiciones_a_csv(datos.posiciones):
             errores["posiciones"] = "Marca al menos una posición"
         if errores:

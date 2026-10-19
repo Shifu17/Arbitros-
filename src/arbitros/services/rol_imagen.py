@@ -210,8 +210,9 @@ def _tarjeta(l: _Lienzo, p: PartidoEnRol, y: int, opciones: OpcionesRol, por_hor
         lienzo.texto(x0 + 24, yy, izquierda, fuente_izq, ROJO_MARCA, col_izq - 16)
         xd = x0 + 24 + col_izq
         yy += lienzo.texto(xd, yy, p.equipos, f_equipos, TEXTO, ancho_der)
-        if p.categoria:
-            yy += lienzo.texto(xd, yy, p.categoria, f_chico, GRIS, ancho_der)
+        subtitulo = " · ".join(x for x in (p.categoria, p.modalidad) if x)
+        if subtitulo:
+            yy += lienzo.texto(xd, yy, subtitulo, f_chico, GRIS, ancho_der)
         yy += 6
         for a in p.arbitros:
             falta = a.arbitro is None
