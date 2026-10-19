@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+# Datos locales de desarrollo (la app real guarda en %APPDATA%\Arbitros)
+datos_dev/
