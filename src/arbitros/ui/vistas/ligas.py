@@ -4,6 +4,8 @@ from datetime import timedelta
 
 import flet as ft
 
+from arbitros.ui import filtros
+
 from arbitros.db.models import (
     FUTBOL_11,
     MODALIDADES,
@@ -13,6 +15,7 @@ from arbitros.db.models import (
     Liga,
     nombre_modalidad,
     posiciones_de_modalidad,
+    posiciones_permitidas,
 )
 from arbitros.services.dinero import a_centavos, formatear_monto, monto_editable
 from arbitros.services.errores import ErrorValidacion
@@ -37,18 +40,40 @@ def construir(app, shell) -> ft.Control:
     return VistaLigas(app, shell).construir()
 
 
-def selector_posiciones(marcadas: list[str]) -> tuple[ft.Control, dict[str, ft.Checkbox], ft.Text]:
-    """Casillas de posiciones + texto de error. Devuelve (control, casillas, error)."""
+def selector_posiciones(marcadas: list[str], modalidad: str | None = None
+                        ) -> tuple[ft.Control, dict[str, ft.Checkbox], ft.Text]:
+    """Casillas de posiciones + texto de error. Devuelve (control, casillas, error).
+
+    Si se indica `modalidad`, solo se muestran las posiciones que ese tipo de partido puede llevar.
+    """
     casillas = {clave: ft.Checkbox(label=nombre, value=clave in marcadas) for clave, nombre in POSICIONES.items()}
+    contenedores = []
+    for c in casillas.values():
+        contenedor = ft.Container(c, col={"xs": 6, "sm": 4})
+        c.data = contenedor  # para poder ocultar la posición completa
+        contenedores.append(contenedor)
     error = ft.Text("", color=ft.Colors.ERROR, size=12, visible=False)
     control = ft.Column(
-        # Tres por renglón para que las 6 posiciones quepan sin desplazarse
-        [ft.ResponsiveRow([ft.Container(c, col={"xs": 6, "sm": 4}) for c in casillas.values()], spacing=0,
-                          run_spacing=0), error],
+        # Tres por renglón para que todas las posiciones quepan sin desplazarse
+        [ft.ResponsiveRow(contenedores, spacing=0, run_spacing=0), error],
         spacing=2,
         tight=True,
     )
+    if modalidad:
+        mostrar_posiciones_de(casillas, modalidad, marcar_defecto=False)
     return control, casillas, error
+
+
+def mostrar_posiciones_de(casillas: dict[str, ft.Checkbox], modalidad: str, marcar_defecto: bool) -> None:
+    """Muestra solo las posiciones del tipo de partido; con `marcar_defecto` marca las que lleva normalmente."""
+    permitidas = set(posiciones_permitidas(modalidad))
+    por_defecto = set(posiciones_de_modalidad(modalidad))
+    for clave, chk in casillas.items():
+        (chk.data or chk).visible = clave in permitidas
+        if clave not in permitidas:
+            chk.value = False
+        elif marcar_defecto:
+            chk.value = clave in por_defecto
 
 
 def posiciones_marcadas(casillas: dict[str, ft.Checkbox]) -> list[str]:
@@ -59,8 +84,13 @@ HEREDAR = "liga"
 
 
 def selector_modalidad(valor: str | None, casillas: dict[str, ft.Checkbox] | None = None, page=None,
-                       heredar: bool = False, al_cambiar=None, **kwargs) -> ft.Dropdown:
-    """Tipo de partido (Fútbol 11 / 7 / bardas). Al cambiarlo marca sus posiciones por defecto en `casillas`."""
+                       heredar: bool = False, al_cambiar=None, modalidad_heredada: str | None = None,
+                       **kwargs) -> ft.Dropdown:
+    """Tipo de partido (Fútbol 11 / 7 / bardas).
+
+    Al cambiarlo, en `casillas` solo quedan visibles las posiciones de ese tipo y se marcan las que lleva
+    normalmente. Con `heredar`, la opción «Igual que la liga» usa `modalidad_heredada`.
+    """
     opciones = [ft.DropdownOption(key=k, text=v[0]) for k, v in MODALIDADES.items()]
     if heredar:
         opciones.insert(0, ft.DropdownOption(key=HEREDAR, text="Igual que la liga"))
@@ -68,10 +98,11 @@ def selector_modalidad(valor: str | None, casillas: dict[str, ft.Checkbox] | Non
                      **kwargs)
 
     def cambiar(_):
-        if casillas is not None and dd.value != HEREDAR:
-            marcadas = posiciones_de_modalidad(dd.value)
-            for clave, chk in casillas.items():
-                chk.value = clave in marcadas
+        if casillas is not None:
+            if dd.value == HEREDAR:
+                mostrar_posiciones_de(casillas, modalidad_heredada or FUTBOL_11, marcar_defecto=False)
+            else:
+                mostrar_posiciones_de(casillas, dd.value, marcar_defecto=True)
         if al_cambiar:
             al_cambiar(dd.value)
         if page:
@@ -206,7 +237,7 @@ class VistaLigas:
         )
         bloque_torneo = ft.Column([ft.Row([fecha.campo, n_dias], spacing=12), nota_dias], visible=False, tight=True)
         fecha.campo.expand = True
-        posiciones, casillas, error_pos = selector_posiciones(posiciones_de_modalidad(FUTBOL_11))
+        posiciones, casillas, error_pos = selector_posiciones(posiciones_de_modalidad(FUTBOL_11), FUTBOL_11)
         modalidad = selector_modalidad(FUTBOL_11, casillas, self.page, width=ANCHO_DIALOGO)
         notas = ft.TextField(label="Notas", multiline=True, min_lines=1, max_lines=3)
         categorias = ft.TextField(
@@ -713,11 +744,13 @@ class PanelCategorias(PanelCatalogo):
         tarifas_liga = self.app.ligas.tarifas(self.liga.id)
         propias = self.app.ligas.tarifas_categoria(categoria.id)
         usar_pos_liga = ft.Switch(label="Usar las posiciones de la liga", value=categoria.lista_posiciones is None)
-        posiciones, casillas, error_pos = selector_posiciones(categoria.lista_posiciones or self.liga.lista_posiciones)
+        posiciones, casillas, error_pos = selector_posiciones(categoria.lista_posiciones or self.liga.lista_posiciones,
+                                                              categoria.modalidad or self.liga.modalidad)
         usar_tarifas_liga = ft.Switch(label="Usar las tarifas de la liga", value=propias is None)
         montos = {
             p: ft.TextField(
                 label=nombre, prefix=ft.Text("$ "), width=150, dense=True, text_align=ft.TextAlign.RIGHT,
+                input_filter=filtros.MONTO, max_length=9, counter="",
                 value=monto_editable((propias or tarifas_liga)[p]) if (propias or tarifas_liga)[p] else "",
             )
             for p, nombre in POSICIONES.items()
@@ -730,7 +763,7 @@ class PanelCategorias(PanelCatalogo):
             posiciones.disabled = usar_pos_liga.value
 
         modalidad = selector_modalidad(categoria.modalidad, casillas, self.page, heredar=True,
-                                       al_cambiar=al_elegir_tipo, width=320)
+                                       al_cambiar=al_elegir_tipo, modalidad_heredada=self.liga.modalidad, width=320)
 
         def sincronizar(_=None):
             posiciones.disabled = usar_pos_liga.value
@@ -805,6 +838,7 @@ class PanelTarifas:
             montos[clave] = ft.TextField(
                 value=monto_editable(tarifas[clave]) if tarifas[clave] else "",
                 prefix=ft.Text("$ "),
+                input_filter=filtros.MONTO,
                 hint_text="0",
                 width=160,
                 dense=True,
@@ -823,6 +857,7 @@ class PanelTarifas:
             )
         error = ft.Text("", color=ft.Colors.ERROR, visible=False)
         modalidad = selector_modalidad(self.liga.modalidad, casillas, self.page, width=320, disabled=not editable)
+        mostrar_posiciones_de(casillas, self.liga.modalidad, marcar_defecto=False)
 
         def guardar(_):
             valores, errores = {}, False

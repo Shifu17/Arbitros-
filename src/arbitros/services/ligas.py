@@ -20,7 +20,9 @@ from arbitros.db.models import (
     Partido,
     Tarifa,
     TarifaCategoria,
+    nombre_modalidad,
     posiciones_a_csv,
+    posiciones_no_permitidas,
 )
 from arbitros.services.errores import ErrorValidacion
 from arbitros.services.texto import sin_acentos
@@ -44,6 +46,10 @@ class ResumenLiga:
     campos: int
     jornadas: int
     categorias: int = 0
+
+
+def _texto_no_permitidas(posiciones: list[str], modalidad: str | None) -> str:
+    return f"{nombre_modalidad(modalidad)} no lleva: {', '.join(POSICIONES[p] for p in posiciones)}"
 
 
 def _nombre_limpio(nombre: str) -> str:
@@ -231,6 +237,8 @@ class LigaService:
             liga = s.get(Liga, liga_id)
             if not liga:
                 raise ErrorValidacion("La liga ya no existe.")
+            if sobran := posiciones_no_permitidas(posiciones, modalidad or liga.modalidad):
+                raise ErrorValidacion(_texto_no_permitidas(sobran, modalidad or liga.modalidad))
             liga.posiciones_defecto = posiciones_a_csv(posiciones)
             if modalidad is not None:
                 liga.modalidad = modalidad
@@ -262,6 +270,9 @@ class LigaService:
             categoria = s.get(Categoria, categoria_id)
             if not categoria:
                 raise ErrorValidacion("La categoría ya no existe.")
+            efectiva = modalidad or s.get(Liga, categoria.liga_id).modalidad
+            if posiciones is not None and (sobran := posiciones_no_permitidas(posiciones, efectiva)):
+                raise ErrorValidacion(_texto_no_permitidas(sobran, efectiva))
             categoria.posiciones_defecto = posiciones_a_csv(posiciones) if posiciones is not None else None
             categoria.modalidad = modalidad
             s.execute(delete(TarifaCategoria).where(TarifaCategoria.categoria_id == categoria_id))
@@ -303,6 +314,8 @@ class LigaService:
             errores["modalidad"] = "Tipo de partido inválido"
         if not posiciones_a_csv(datos.posiciones):
             errores["posiciones"] = "Marca al menos una posición"
+        elif sobran := posiciones_no_permitidas(datos.posiciones, datos.modalidad):
+            errores["posiciones"] = _texto_no_permitidas(sobran, datos.modalidad)
         if errores:
             raise ErrorValidacion("Revisa los datos marcados.", errores)
         return nombre

@@ -83,3 +83,11 @@ def test_usuario_duplicado(auth):
     auth.crear_admin_inicial("admin", "A", "secreta1")
     with pytest.raises(ErrorValidacion):
         auth.crear_usuario("Admin", "B", "secreta1", ROL_ADMIN)
+
+
+
+def test_usuario_y_nombre_validos(auth):
+    with pytest.raises(ErrorValidacion) as e:
+        auth.crear_admin_inicial("mi usuario", "Juan 99", "secreta1")
+    assert set(e.value.campos) == {"usuario", "nombre"}
+    auth.crear_admin_inicial("coordinador.saul", "Saúl Pérez", "secreta1")

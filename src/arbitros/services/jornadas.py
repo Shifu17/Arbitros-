@@ -25,7 +25,10 @@ from arbitros.db.models import (
     Jornada,
     Liga,
     Partido,
+    POSICIONES,
+    nombre_modalidad,
     posiciones_a_csv,
+    posiciones_no_permitidas,
 )
 from arbitros.services.errores import AvisosPendientes, ErrorValidacion
 
@@ -311,6 +314,11 @@ class JornadaService:
             errores["estado"] = "Estado inválido"
         if d.modalidad and d.modalidad not in MODALIDADES:
             errores["modalidad"] = "Tipo de partido inválido"
+        elif "posiciones" not in errores and "categoria" not in errores:
+            efectiva = self._modalidad(s, jornada, d)
+            if sobran := posiciones_no_permitidas(d.posiciones, efectiva):
+                errores["posiciones"] = (f"{nombre_modalidad(efectiva)} no lleva: "
+                                         f"{', '.join(POSICIONES[p] for p in sobran)}")
         categorias_liga = s.scalar(
             select(func.count(Categoria.id)).where(Categoria.liga_id == jornada.liga_id, Categoria.activo.is_(True))
         )

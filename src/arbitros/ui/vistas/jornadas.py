@@ -2,6 +2,8 @@
 
 import flet as ft
 
+from arbitros.ui import filtros
+
 from arbitros.db.models import (
     ESTADO_CANCELADO,
     ESTADO_JUGADO,
@@ -34,7 +36,12 @@ from arbitros.ui.comunes import (
     rango_fechas,
     tarjeta,
 )
-from arbitros.ui.vistas.ligas import posiciones_marcadas, selector_modalidad, selector_posiciones
+from arbitros.ui.vistas.ligas import (
+    mostrar_posiciones_de,
+    posiciones_marcadas,
+    selector_modalidad,
+    selector_posiciones,
+)
 from arbitros.ui import tema
 
 ANCHO_LISTA_JORNADAS = 250
@@ -335,6 +342,8 @@ class VistaJornadas:
             value=str(j.numero if j else self.app.jornadas.siguiente_numero(self.liga.id)),
             width=120,
             keyboard_type=ft.KeyboardType.NUMBER,
+            input_filter=filtros.DIGITOS,
+            max_length=3, counter="",
             visible=not es_torneo,
         )
         inicio = CampoFecha(self.page, "Fecha *" if es_torneo else "Fecha de inicio *", j.fecha_inicio if j else None, autofocus=True)
@@ -462,12 +471,12 @@ class VistaJornadas:
             cat = next((c for c in categorias if c.id == categoria_id), None)
             return self.app.ligas.modalidad_para(self.liga, cat)
 
+        tipo_inicial = partido.modalidad if partido else modalidad_defecto(cat_actual)
         posiciones, casillas, error_pos = selector_posiciones(
-            partido.lista_posiciones if partido else posiciones_defecto(cat_actual)
+            partido.lista_posiciones if partido else posiciones_defecto(cat_actual), tipo_inicial
         )
-        # Fútbol 11 / Fútbol 7 / Bardas: al cambiarlo se marcan sus árbitros por defecto
-        modalidad = selector_modalidad(partido.modalidad if partido else modalidad_defecto(cat_actual), casillas,
-                                       self.page, al_cambiar=lambda _: al_cambiar(), width=230)
+        # Fútbol 11 / Fútbol 7 / Bardas: al cambiarlo solo aparecen sus árbitros y se marcan los necesarios
+        modalidad = selector_modalidad(tipo_inicial, casillas, self.page, al_cambiar=lambda _: al_cambiar(), width=230)
         estado = ft.Dropdown(
             label="Estado",
             value=partido.estado if partido else ESTADO_PROGRAMADO,
@@ -543,6 +552,7 @@ class VistaJornadas:
                 marcadas = posiciones_defecto(cat_id)
                 for clave, chk in casillas.items():
                     chk.value = clave in marcadas
+                mostrar_posiciones_de(casillas, modalidad.value, marcar_defecto=False)
             categoria.error_text = None
             al_cambiar()
             self.page.update()

@@ -2,6 +2,8 @@
 
 import flet as ft
 
+from arbitros.ui import filtros
+
 from arbitros import __version__
 from arbitros.config import APP_NOMBRE, ORGANIZACION
 from arbitros.ui import tema
@@ -63,7 +65,7 @@ def _mostrar_error(texto: ft.Text, mensaje: str | None) -> None:
 
 
 def pantalla_login(app, mensaje: str | None = None) -> ft.Control:
-    usuario = ft.TextField(label="Usuario", prefix_icon=ft.Icons.PERSON, autofocus=True)
+    usuario = ft.TextField(label="Usuario", prefix_icon=ft.Icons.PERSON, autofocus=True, input_filter=filtros.USUARIO)
     password = campo_password("Contraseña", prefix_icon=ft.Icons.LOCK)
     error = _mensaje_error()
 
@@ -92,8 +94,10 @@ def pantalla_login(app, mensaje: str | None = None) -> ft.Control:
 
 
 def pantalla_configuracion_inicial(app) -> ft.Control:
-    nombre = ft.TextField(label="Tu nombre", prefix_icon=ft.Icons.BADGE, autofocus=True)
-    usuario = ft.TextField(label="Usuario para entrar", prefix_icon=ft.Icons.PERSON, helper="Sin espacios, ej.: coordinador")
+    nombre = ft.TextField(label="Tu nombre", prefix_icon=ft.Icons.BADGE, autofocus=True,
+                          input_filter=filtros.NOMBRE_PERSONA, max_length=120, counter="")
+    usuario = ft.TextField(label="Usuario para entrar", prefix_icon=ft.Icons.PERSON, helper="Sin espacios, ej.: coordinador",
+                           input_filter=filtros.USUARIO, max_length=50, counter="")
     password = campo_password("Contraseña", prefix_icon=ft.Icons.LOCK, helper="Mínimo 6 caracteres")
     confirmar = campo_password("Repite la contraseña", prefix_icon=ft.Icons.LOCK)
     error = _mensaje_error()
@@ -137,8 +141,10 @@ def pantalla_recuperar(app) -> ft.Control:
         hint_text="XXXX-XXXX-XXXX-XXXX",
         capitalization=ft.TextCapitalization.CHARACTERS,
         autofocus=True,
+        input_filter=ft.InputFilter(regex_string=r"[a-zA-Z0-9-]", allow=True, replacement_string=""),
+        max_length=19, counter="",
     )
-    usuario = ft.TextField(label="Usuario administrador", prefix_icon=ft.Icons.PERSON)
+    usuario = ft.TextField(label="Usuario administrador", prefix_icon=ft.Icons.PERSON, input_filter=filtros.USUARIO)
     password = campo_password("Contraseña nueva", prefix_icon=ft.Icons.LOCK, helper="Mínimo 6 caracteres")
     confirmar = campo_password("Repite la contraseña nueva", prefix_icon=ft.Icons.LOCK)
     error = _mensaje_error()

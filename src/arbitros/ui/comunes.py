@@ -5,6 +5,8 @@ from datetime import date, datetime, time, timedelta
 
 import flet as ft
 
+from arbitros.ui import filtros
+
 from arbitros.services.jornadas import texto_a_hora
 from arbitros.ui import tema
 
@@ -146,6 +148,8 @@ class CampoFecha:
             label=etiqueta_,
             value=valor.strftime("%d/%m/%Y") if valor else "",
             hint_text="dd/mm/aaaa",
+            input_filter=filtros.FECHA,
+            max_length=10, counter="",
             suffix=ft.IconButton(ft.Icons.CALENDAR_MONTH, tooltip="Elegir en el calendario", on_click=self._abrir),
             **kwargs,
         )
@@ -197,6 +201,8 @@ class CampoHora:
             label=etiqueta_,
             value=valor.strftime("%H:%M") if valor else "",
             hint_text="hh:mm",
+            input_filter=filtros.HORA,
+            max_length=8, counter="",
             suffix=ft.IconButton(ft.Icons.SCHEDULE, tooltip="Elegir en el reloj", on_click=self._abrir),
             on_blur=self._formatear,
             **kwargs,

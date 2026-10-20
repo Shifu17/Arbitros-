@@ -5,6 +5,8 @@ from urllib.parse import quote
 
 import flet as ft
 
+from arbitros.ui import filtros
+
 from arbitros.db.models import POSICIONES
 from arbitros.services.arbitros import enlace_whatsapp
 from arbitros.services.dinero import a_centavos, formatear_monto, monto_editable
@@ -359,10 +361,12 @@ class PanelCampo:
             editable = self.app.es_admin and not l.liquidada
             p = l.partido
             tarifa = ft.TextField(value=monto_editable(l.tarifa), prefix=ft.Text("$ "), width=120, dense=True,
+                                  input_filter=filtros.MONTO,
                                   text_align=ft.TextAlign.RIGHT, read_only=not editable,
                                   border_color=tema.AVISO_ICONO if l.tarifa_fija else None,
                                   tooltip="Tarifa de este partido")
             campo = ft.TextField(value=monto_editable(l.pagado_campo) if l.pagado_campo else "", prefix=ft.Text("$ "),
+                                 input_filter=filtros.MONTO,
                                  width=120, dense=True, text_align=ft.TextAlign.RIGHT, read_only=not editable,
                                  hint_text="0", autofocus=False)
 

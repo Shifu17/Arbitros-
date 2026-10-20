@@ -7,7 +7,7 @@ from arbitros.config import LADA_PAIS
 from arbitros.db.database import Database
 from arbitros.db.models import Arbitro
 from arbitros.services.errores import ErrorValidacion
-from arbitros.services.texto import sin_acentos
+from arbitros.services.texto import es_nombre_persona, sin_acentos
 
 FILTRO_ACTIVOS = "activos"
 FILTRO_INACTIVOS = "inactivos"
@@ -32,10 +32,13 @@ def normalizar_telefono(telefono: str) -> str:
     return ("+" if mas else "") + digitos
 
 
+DIGITOS_TELEFONO = 10
+
+
 def formatear_telefono(telefono: str) -> str:
-    """Formato de lectura: 10 dígitos -> 33 1234 5678."""
+    """Formato de lectura: 10 dígitos -> 844 123 4567."""
     if len(telefono) == 10 and telefono.isdigit():
-        return f"{telefono[:2]} {telefono[2:6]} {telefono[6:]}"
+        return f"{telefono[:3]} {telefono[3:6]} {telefono[6:]}"
     return telefono
 
 
@@ -122,12 +125,16 @@ class ArbitroService:
         errores = {}
         if not datos.nombre.strip():
             errores["nombre"] = "Escribe el nombre"
-        telefono = normalizar_telefono(datos.telefono)
-        digitos = telefono.lstrip("+")
+        elif not es_nombre_persona(datos.nombre.strip()):
+            errores["nombre"] = "Solo letras (sin números ni símbolos)"
+        if datos.apodo.strip() and not es_nombre_persona(datos.apodo.strip()):
+            errores["apodo"] = "Solo letras (sin números ni símbolos)"
+        telefono = normalizar_telefono(datos.telefono).lstrip("+")
+        digitos = telefono
         if not digitos:
             errores["telefono"] = "Escribe el teléfono"
-        elif not 10 <= len(digitos) <= 15:
-            errores["telefono"] = "Debe tener al menos 10 dígitos"
+        elif len(digitos) != DIGITOS_TELEFONO:
+            errores["telefono"] = f"Debe tener exactamente {DIGITOS_TELEFONO} dígitos (tiene {len(digitos)})"
         else:
             consulta = select(Arbitro).where(Arbitro.telefono == telefono)
             if excluir_id is not None:

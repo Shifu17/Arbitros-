@@ -4,6 +4,8 @@ from datetime import date, timedelta
 
 import flet as ft
 
+from arbitros.ui import filtros
+
 from arbitros.db.models import DISP_HORARIO, DISP_NO_DISPONIBLE, DISP_TODO_EL_DIA, Arbitro, Disponibilidad
 from arbitros.services.disponibilidad import DatosDisponibilidad, describir, dias_de_semana, lunes_de
 from arbitros.services.errores import ErrorValidacion
@@ -293,9 +295,10 @@ class VistaDisponibilidad:
     def _ajustes(self) -> None:
         actuales = self.app.asignaciones.ajustes()
         duracion = ft.TextField(label="Duración de un partido (minutos)", value=str(actuales.duracion_min),
-                                keyboard_type=ft.KeyboardType.NUMBER)
+                                keyboard_type=ft.KeyboardType.NUMBER, input_filter=filtros.DIGITOS, max_length=3, counter="")
         descanso = ft.TextField(label="Tiempo mínimo entre partidos de un árbitro (minutos)",
                                 value=str(actuales.descanso_min), keyboard_type=ft.KeyboardType.NUMBER,
+                                input_filter=filtros.DIGITOS, max_length=3, counter="",
                                 helper="Para trasladarse de campo o descansar")
 
         def guardar(_):

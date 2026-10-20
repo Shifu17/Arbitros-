@@ -39,21 +39,32 @@ POSICIONES = {
 POSICIONES_CORTAS = {"central": "C", "central_2": "C2", "asistente_1": "A1", "asistente_2": "A2", "cuarto": "4°",
                      "anotador": "An"}
 
-# Tipo de partido. Cada uno trae sus posiciones por defecto (se pueden ajustar).
+# Tipo de partido: (nombre, posiciones que se marcan por defecto, posiciones que puede llevar)
 FUTBOL_11 = "futbol_11"
 MODALIDADES = {
-    FUTBOL_11: ("Fútbol 11", ["central", "asistente_1", "asistente_2"]),
-    "futbol_7": ("Fútbol 7", ["central"]),
-    "bardas": ("Fútbol de bardas", ["central", "central_2", "anotador"]),
+    FUTBOL_11: ("Fútbol 11", ["central", "asistente_1", "asistente_2"],
+                ["central", "asistente_1", "asistente_2", "cuarto"]),
+    "futbol_7": ("Fútbol 7", ["central"], ["central", "central_2"]),
+    "bardas": ("Fútbol de bardas", ["central", "central_2", "anotador"], ["central", "central_2", "anotador"]),
 }
 
 
+def _modalidad(clave: str | None) -> tuple:
+    return MODALIDADES.get(clave or FUTBOL_11, MODALIDADES[FUTBOL_11])
+
+
 def nombre_modalidad(clave: str | None) -> str:
-    return MODALIDADES.get(clave or FUTBOL_11, MODALIDADES[FUTBOL_11])[0]
+    return _modalidad(clave)[0]
 
 
 def posiciones_de_modalidad(clave: str | None) -> list[str]:
-    return list(MODALIDADES.get(clave or FUTBOL_11, MODALIDADES[FUTBOL_11])[1])
+    """Posiciones que se marcan solas al elegir el tipo."""
+    return list(_modalidad(clave)[1])
+
+
+def posiciones_permitidas(clave: str | None) -> list[str]:
+    """Las únicas posiciones que puede llevar un partido de ese tipo."""
+    return list(_modalidad(clave)[2])
 
 ESTADO_PROGRAMADO = "programado"
 ESTADO_JUGADO = "jugado"
@@ -73,6 +84,12 @@ def posiciones_a_csv(posiciones) -> str:
     """Normaliza a CSV en el orden canónico de POSICIONES, descartando claves desconocidas."""
     elegidas = set(posiciones)
     return ",".join(p for p in POSICIONES if p in elegidas)
+
+
+def posiciones_no_permitidas(posiciones, modalidad: str | None) -> list[str]:
+    """Posiciones elegidas que ese tipo de partido no lleva (para validar)."""
+    permitidas = set(posiciones_permitidas(modalidad))
+    return [p for p in posiciones if p in POSICIONES and p not in permitidas]
 
 
 def csv_a_posiciones(csv: str | None) -> list[str]:

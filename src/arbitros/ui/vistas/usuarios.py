@@ -1,5 +1,7 @@
 import flet as ft
 
+from arbitros.ui import filtros
+
 from arbitros.db.models import ROL_ADMIN, ROL_CONSULTA, Usuario
 from arbitros.services.errores import ErrorValidacion
 from arbitros.ui.comunes import ANCHO_DIALOGO, avisar, campo_password, encabezado, etiqueta, mostrar_errores
@@ -85,8 +87,8 @@ class VistaUsuarios:
         self.refrescar()
 
     def _nuevo(self) -> None:
-        nombre = ft.TextField(label="Nombre *", autofocus=True)
-        usuario = ft.TextField(label="Usuario *", helper="Sin espacios")
+        nombre = ft.TextField(label="Nombre *", autofocus=True, input_filter=filtros.NOMBRE_PERSONA, max_length=120, counter="")
+        usuario = ft.TextField(label="Usuario *", helper="Sin espacios", input_filter=filtros.USUARIO, max_length=50, counter="")
         rol = ft.Dropdown(
             label="Rol",
             value=ROL_CONSULTA,

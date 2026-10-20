@@ -20,7 +20,7 @@ def svc(db):
 def test_normalizar_telefono():
     assert normalizar_telefono(" (33) 1234-5678 ") == "3312345678"
     assert normalizar_telefono("+52 33 1234 5678") == "+523312345678"
-    assert formatear_telefono("3312345678") == "33 1234 5678"
+    assert formatear_telefono("8441234567") == "844 123 4567"
     assert enlace_whatsapp("3312345678") == "https://wa.me/523312345678"
     assert enlace_whatsapp("+13055551234") == "https://wa.me/13055551234"
 
@@ -47,6 +47,17 @@ def test_validaciones(svc):
     with pytest.raises(ErrorValidacion) as e:
         svc.crear(DatosArbitro(nombre=" ", telefono="123"))
     assert set(e.value.campos) == {"nombre", "telefono"}
+
+
+def test_telefono_exactamente_10_digitos_y_nombres_solo_letras(svc):
+    with pytest.raises(ErrorValidacion) as e:
+        svc.crear(DatosArbitro(nombre="Juan", telefono="844123456789"))
+    assert "exactamente 10" in e.value.campos["telefono"]
+    with pytest.raises(ErrorValidacion) as e:
+        svc.crear(DatosArbitro(nombre="Juan 2", apodo="El #1", telefono="8441234567"))
+    assert set(e.value.campos) == {"nombre", "apodo"}
+    a = svc.crear(DatosArbitro(nombre="José Ñúñez O'Brien", apodo="Pepe", telefono="844 123-4567"))
+    assert a.telefono == "8441234567"
 
 
 def test_telefono_duplicado(svc):

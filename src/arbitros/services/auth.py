@@ -4,6 +4,7 @@ La clave de recuperación se genera al crear el primer administrador y se guarda
 solo como hash; sirve para restablecer la contraseña de un administrador si se olvida.
 """
 
+import re
 import secrets
 
 import bcrypt
@@ -12,6 +13,7 @@ from sqlalchemy import func, select
 from arbitros.db.database import Database
 from arbitros.db.models import ROL_ADMIN, ROLES, Configuracion, Usuario
 from arbitros.services.errores import ErrorAutenticacion, ErrorValidacion
+from arbitros.services.texto import es_nombre_persona
 
 CLAVE_RECUPERACION = "clave_recuperacion_hash"
 MIN_PASSWORD = 6
@@ -70,10 +72,12 @@ class AuthService:
         errores = {}
         if not usuario:
             errores["usuario"] = "Escribe un nombre de usuario"
-        elif " " in usuario:
-            errores["usuario"] = "Sin espacios"
+        elif not re.fullmatch(r"[a-z0-9._-]+", usuario):
+            errores["usuario"] = "Solo letras sin acentos, números, punto o guion (sin espacios)"
         if not nombre:
             errores["nombre"] = "Escribe el nombre"
+        elif not es_nombre_persona(nombre):
+            errores["nombre"] = "Solo letras (sin números ni símbolos)"
         if rol not in ROLES:
             errores["rol"] = "Rol inválido"
         if errores:

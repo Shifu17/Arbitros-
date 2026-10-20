@@ -1,5 +1,7 @@
 import flet as ft
 
+from arbitros.ui import filtros
+
 from arbitros.db.models import POSICIONES, Arbitro
 from arbitros.services.arbitros import (
     FILTRO_ACTIVOS,
@@ -206,15 +208,11 @@ class VistaArbitros:
     def abrir_formulario(self, arbitro: Arbitro | None = None) -> None:
         editable = self.app.es_admin
         nuevo = arbitro is None
-        nombre = ft.TextField(label="Nombre completo *", value=arbitro.nombre if arbitro else "", autofocus=True)
-        apodo = ft.TextField(label="Apodo", value=(arbitro.apodo or "") if arbitro else "")
-        telefono = ft.TextField(
-            label="Teléfono (WhatsApp) *",
-            value=formatear_telefono(arbitro.telefono) if arbitro else "",
-            keyboard_type=ft.KeyboardType.PHONE,
-            prefix_icon=ft.Icons.PHONE,
-            helper="10 dígitos, ej.: 33 1234 5678",
-        )
+        nombre = ft.TextField(label="Nombre completo *", value=arbitro.nombre if arbitro else "", autofocus=True,
+                              input_filter=filtros.NOMBRE_PERSONA, max_length=120, counter="", helper="Solo letras")
+        apodo = ft.TextField(label="Apodo", value=(arbitro.apodo or "") if arbitro else "",
+                             input_filter=filtros.NOMBRE_PERSONA, max_length=60, counter="")
+        telefono = filtros.campo_telefono(arbitro.telefono.lstrip("+") if arbitro else "")
         categoria = ft.TextField(
             label="Categoría o nivel",
             value=(arbitro.categoria or "") if arbitro else "",
@@ -224,7 +222,7 @@ class VistaArbitros:
             label="Notas", value=(arbitro.notas or "") if arbitro else "", multiline=True, min_lines=2, max_lines=4
         )
         activo = ft.Switch(label="Activo", value=arbitro.activo if arbitro else True, visible=not nuevo)
-        campos = {"nombre": nombre, "telefono": telefono}
+        campos = {"nombre": nombre, "apodo": apodo, "telefono": telefono}
         for c in (nombre, apodo, telefono, categoria, notas, activo):
             c.disabled = not editable
 

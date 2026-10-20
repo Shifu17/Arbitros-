@@ -1,3 +1,4 @@
+import re
 import unicodedata
 
 
@@ -15,3 +16,11 @@ MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto
 def fecha_larga(d) -> str:
     """Sábado 24 de octubre"""
     return f"{DIAS[d.weekday()].capitalize()} {d.day} de {MESES[d.month - 1]}"
+
+
+_NOMBRE_PERSONA = re.compile(r"[A-Za-zÁÉÍÓÚáéíóúÄËÏÖÜäëïöüÑñ .'-]+")
+
+
+def es_nombre_persona(texto: str) -> bool:
+    """Solo letras (con acentos y ñ), espacios, punto, apóstrofo y guion."""
+    return bool(_NOMBRE_PERSONA.fullmatch(texto or ""))

@@ -24,7 +24,9 @@ y la app funciona sin internet (salvo buscar actualizaciones y abrir WhatsApp).
 - Cada una tiene su **catálogo de equipos** y **campos**, y **tarifas por posición**.
 - **Tipo de partido**: Fútbol 11 (Central + 2 asistentes), Fútbol 7 (Central, opcional Central 2) y
   Fútbol de bardas (Central, Central 2 y Anotador). La liga tiene uno por defecto, cada categoría puede
-  tener el suyo y cada partido se puede cambiar.
+  tener el suyo y cada partido se puede cambiar. Al elegir el tipo solo aparecen sus posiciones
+  (Fut 11: Central, Asistentes y Cuarto; Fut 7: Central y Central 2; Bardas: Central, Central 2 y Anotador).
+- Campos con filtro: teléfono solo 10 dígitos; nombres solo letras; montos y números solo dígitos.
 - Posiciones por defecto por liga (Central, Central 2, Asistente 1, Asistente 2, Cuarto árbitro, Anotador);
   **cada partido puede sobrescribirlas** (p. ej. sólo central, o con cuarto árbitro).
 - **Categorías o sub-ligas** dentro de una liga (Veteranos, Premier A/B, Oro, Plata…): cada equipo

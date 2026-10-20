@@ -268,3 +268,22 @@ def test_posiciones_de_modalidades():
     assert posiciones_de_modalidad("futbol_7") == ["central"]
     assert posiciones_de_modalidad(None) == ["central", "asistente_1", "asistente_2"]
     assert {"central_2", "anotador"} <= set(POSICIONES)
+
+
+def test_tipo_de_partido_solo_admite_sus_posiciones(ligas, svc, liga):
+    eq, ca = _ids(ligas, liga)
+    j = svc.crear(liga.id, SAB)
+    d = _partido(eq, ca)
+    d.modalidad = "futbol_7"
+    d.posiciones = ["central", "asistente_1"]
+    with pytest.raises(ErrorValidacion) as e:
+        svc.crear_partido(j.id, d)
+    assert "Fútbol 7 no lleva: Asistente 1" in e.value.campos["posiciones"]
+    d.posiciones = ["central", "central_2"]
+    svc.crear_partido(j.id, d)
+    # Bardas no lleva asistentes; fútbol 11 no lleva anotador
+    with pytest.raises(ErrorValidacion):
+        ligas.crear(DatosLiga(nombre="Bardas Norte", modalidad="bardas", posiciones=["central", "asistente_1"]))
+    with pytest.raises(ErrorValidacion):
+        ligas.configurar_posiciones_y_tarifas(liga.id, ["central", "anotador"], {})
+    ligas.configurar_posiciones_y_tarifas(liga.id, ["central", "anotador"], {}, modalidad="bardas")
