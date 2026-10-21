@@ -3,9 +3,12 @@
 No dibuja nada; detecta parámetros inválidos de Flet y errores al armar las vistas.
 """
 
+import dataclasses
 from types import SimpleNamespace
 
 import flet as ft
+from flet.controls.base_control import BaseControl
+from flet.utils.validation import validate
 import pytest
 
 from datetime import date, time
@@ -22,6 +25,22 @@ from arbitros.ui.vistas import (
 )
 
 
+def validar_arbol(control, vistos=None) -> None:
+    """Aplica las mismas validaciones que Flet hace al actualizar (p. ej. una celda con su control oculto)."""
+    vistos = set() if vistos is None else vistos
+    if id(control) in vistos or not getattr(control, "visible", True):
+        return
+    vistos.add(id(control))
+    validate(control)
+    for f in dataclasses.fields(control):
+        if f.name.startswith("_") or f.name == "parent":
+            continue
+        valor = getattr(control, f.name, None)
+        for hijo in (valor if isinstance(valor, list) else [valor]):
+            if isinstance(hijo, BaseControl):
+                validar_arbol(hijo, vistos)
+
+
 class PaginaFalsa:
     def __init__(self):
         self.controls = []
@@ -33,9 +52,11 @@ class PaginaFalsa:
         self.controls.extend(controles)
 
     def update(self, *_):
-        pass
+        for c in [*self.controls, *self.dialogos]:
+            validar_arbol(c)
 
     def show_dialog(self, d):
+        validar_arbol(d)
         self.dialogos.append(d)
 
     def pop_dialog(self):
@@ -76,6 +97,13 @@ def app(db, rutas):
     jp = a.jornadas.crear(premier.id, date(2026, 10, 24))
     a.jornadas.crear_partido(jp.id, DatosPartido(date(2026, 10, 24), time(9), eqp["Leones"], eqp["Halcones"],
                                                  campo_p.id, ["central"], categoria_id=oro.id))
+    # Liga de bardas: sus equipos juegan en todas las categorías
+    bardas = a.ligas.crear(DatosLiga(nombre="Berrendos", modalidad="bardas", posiciones=["central", "anotador"]))
+    juvenil = a.ligas.categorias.crear(bardas.id, "Juvenil")
+    a.ligas.categorias.crear(bardas.id, "Mayor")
+    a.ligas.configurar_categoria(juvenil.id, None, {"central": 30000, "anotador": 10000})
+    a.ligas.equipos.crear_varios(bardas.id, "Toros\nVenados")
+    a.ligas.campos.crear(bardas.id, "Bardas Norte")
     return a
 
 
@@ -132,6 +160,7 @@ def test_ligas_y_jornadas(app):
     for r in app.ligas.listar():
         for pestana in ("categorias", "equipos", "campos", "tarifas"):
             vl.mostrar_detalle(r.liga.id, pestana)
+            validar_arbol(vl.cuerpo)
         vl.dialogo_editar(r.liga)
         for panel in (ligas.PanelEquipos(app, r.liga), ligas.PanelCampos(app, r.liga), ligas.PanelCategorias(app, r.liga)):
             panel.construir()

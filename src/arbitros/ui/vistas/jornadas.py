@@ -5,6 +5,7 @@ import flet as ft
 from arbitros.ui import filtros
 
 from arbitros.db.models import (
+    BARDAS,
     ESTADO_CANCELADO,
     ESTADO_JUGADO,
     ESTADO_PROGRAMADO,
@@ -444,25 +445,16 @@ class VistaJornadas:
 
         actuales = {partido.local_id, partido.visitante_id} if partido else set()
 
-        def equipos_de(categoria_id: int | None) -> list:
+        def equipos_de(categoria_id: int | None, tipo: str) -> list:
             """Equipos de la categoría elegida (más los que no tienen categoría).
 
+            En bardas los mismos equipos juegan en todas las categorías, así que aparecen todos.
             Al editar, los equipos que ya tiene el partido siempre aparecen aunque sean de otra categoría.
             """
-            if not categoria_id:
+            if not categoria_id or tipo == BARDAS:
                 return equipos
             return [e for e in equipos if e.categoria_id in (categoria_id, None) or e.id in actuales]
 
-        cat_actual = int(categoria.value) if categoria.value else None
-        local = ft.Dropdown(label="Equipo local *", options=opciones(equipos_de(cat_actual)), enable_filter=True,
-                            editable=True, value=str(partido.local_id) if partido else None, expand=True)
-        visitante = ft.Dropdown(label="Equipo visitante *", options=opciones(equipos_de(cat_actual)), enable_filter=True,
-                                editable=True, value=str(partido.visitante_id) if partido else None, expand=True)
-        campo = ft.Dropdown(label="Campo *", options=opciones(campos_liga),
-                            value=str(base.campo_id) if base and base.campo_id else (str(campos_liga[0].id) if len(campos_liga) == 1 else None),
-                            expand=True)
-        fecha = CampoFecha(self.page, "Fecha *", base.fecha if base else jornada.fecha_inicio, expand=True)
-        hora = CampoHora(self.page, "Hora *", base.hora if base else None, width=170)
         def posiciones_defecto(categoria_id: int | None) -> list[str]:
             cat = next((c for c in categorias if c.id == categoria_id), None)
             return self.app.ligas.posiciones_para(self.liga, cat)
@@ -471,12 +463,25 @@ class VistaJornadas:
             cat = next((c for c in categorias if c.id == categoria_id), None)
             return self.app.ligas.modalidad_para(self.liga, cat)
 
+        cat_actual = int(categoria.value) if categoria.value else None
         tipo_inicial = partido.modalidad if partido else modalidad_defecto(cat_actual)
+        local = ft.Dropdown(label="Equipo local *", options=opciones(equipos_de(cat_actual, tipo_inicial)),
+                            enable_filter=True, editable=True, value=str(partido.local_id) if partido else None,
+                            expand=True)
+        visitante = ft.Dropdown(label="Equipo visitante *", options=opciones(equipos_de(cat_actual, tipo_inicial)),
+                                enable_filter=True, editable=True,
+                                value=str(partido.visitante_id) if partido else None, expand=True)
+        campo = ft.Dropdown(label="Campo *", options=opciones(campos_liga),
+                            value=str(base.campo_id) if base and base.campo_id else (str(campos_liga[0].id) if len(campos_liga) == 1 else None),
+                            expand=True)
+        fecha = CampoFecha(self.page, "Fecha *", base.fecha if base else jornada.fecha_inicio, expand=True)
+        hora = CampoHora(self.page, "Hora *", base.hora if base else None, width=170)
         posiciones, casillas, error_pos = selector_posiciones(
             partido.lista_posiciones if partido else posiciones_defecto(cat_actual), tipo_inicial
         )
         # Fútbol 11 / Fútbol 7 / Bardas: al cambiarlo solo aparecen sus árbitros y se marcan los necesarios
-        modalidad = selector_modalidad(tipo_inicial, casillas, self.page, al_cambiar=lambda _: al_cambiar(), width=230)
+        modalidad = selector_modalidad(tipo_inicial, casillas, self.page, al_cambiar=lambda _: cambiar_tipo(),
+                                       width=230)
         estado = ft.Dropdown(
             label="Estado",
             value=partido.estado if partido else ESTADO_PROGRAMADO,
@@ -538,14 +543,21 @@ class VistaJornadas:
 
         estado.on_select = cambiar_estado
 
-        def cambiar_categoria(_):
+        def actualizar_equipos():
             cat_id = int(categoria.value) if categoria.value else None
-            nuevas = equipos_de(cat_id)
+            nuevas = equipos_de(cat_id, modalidad.value)
             ids = {str(e.id) for e in nuevas}
             for dd in (local, visitante):
                 dd.options = opciones(nuevas)
                 if dd.value not in ids:
                     dd.value = None
+
+        def cambiar_tipo():
+            actualizar_equipos()
+            al_cambiar()
+
+        def cambiar_categoria(_):
+            cat_id = int(categoria.value) if categoria.value else None
             if partido is None:
                 # En un partido nuevo, precargar el tipo y las posiciones de esa categoría
                 modalidad.value = modalidad_defecto(cat_id)
@@ -553,6 +565,7 @@ class VistaJornadas:
                 for clave, chk in casillas.items():
                     chk.value = clave in marcadas
                 mostrar_posiciones_de(casillas, modalidad.value, marcar_defecto=False)
+            actualizar_equipos()
             categoria.error_text = None
             al_cambiar()
             self.page.update()

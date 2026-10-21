@@ -13,6 +13,7 @@ from sqlalchemy import delete, func, select
 
 from arbitros.db.database import Database
 from arbitros.db.models import (
+    BARDAS,
     ESTADO_PROGRAMADO,
     ESTADOS_PARTIDO,
     ESTADOS_SIN_JUEGO,
@@ -354,11 +355,14 @@ class JornadaService:
             otros = otros.where(Partido.id != excluir_id)
         otros = list(s.scalars(otros).unique())
 
+        # En bardas los mismos equipos juegan en todas las categorías
+        revisar_categoria = JornadaService._modalidad(s, jornada, d) != BARDAS
         for equipo_id in (d.local_id, d.visitante_id):
             equipo = s.get(Equipo, equipo_id)
             if any(equipo_id in (p.local_id, p.visitante_id) for p in otros):
                 avisos.append(f"{equipo.nombre} ya tiene otro partido en esta jornada.")
-            if d.categoria_id and equipo.categoria_id and equipo.categoria_id != d.categoria_id:
+            if (revisar_categoria and d.categoria_id and equipo.categoria_id
+                    and equipo.categoria_id != d.categoria_id):
                 otra = s.get(Categoria, equipo.categoria_id).nombre
                 avisos.append(f"{equipo.nombre} es de la categoría {otra}.")
 

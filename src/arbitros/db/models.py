@@ -41,11 +41,12 @@ POSICIONES_CORTAS = {"central": "C", "central_2": "C2", "asistente_1": "A1", "as
 
 # Tipo de partido: (nombre, posiciones que se marcan por defecto, posiciones que puede llevar)
 FUTBOL_11 = "futbol_11"
+BARDAS = "bardas"  # sus equipos juegan en todas las categorías de la liga
 MODALIDADES = {
     FUTBOL_11: ("Fútbol 11", ["central", "asistente_1", "asistente_2"],
                 ["central", "asistente_1", "asistente_2", "cuarto"]),
     "futbol_7": ("Fútbol 7", ["central"], ["central", "central_2"]),
-    "bardas": ("Fútbol de bardas", ["central", "central_2", "anotador"], ["central", "central_2", "anotador"]),
+    BARDAS: ("Fútbol de bardas", ["central", "central_2", "anotador"], ["central", "central_2", "anotador"]),
 }
 
 

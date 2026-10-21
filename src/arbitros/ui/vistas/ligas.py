@@ -7,6 +7,7 @@ import flet as ft
 from arbitros.ui import filtros
 
 from arbitros.db.models import (
+    BARDAS,
     FUTBOL_11,
     MODALIDADES,
     POSICIONES,
@@ -639,9 +640,14 @@ class PanelEquipos(PanelCatalogo):
     """Equipos; si la liga tiene categorías, cada equipo se asigna a una."""
 
     def __init__(self, app, liga: Liga):
-        super().__init__(app, liga, app.ligas.equipos, "equipo", "equipos")
-        self.categorias = app.ligas.categorias.listar(liga.id, solo_activos=True)
-        self.nombres_categoria = {c.id: c.nombre for c in app.ligas.categorias.listar(liga.id)}
+        bardas = liga.modalidad == BARDAS
+        super().__init__(app, liga, app.ligas.equipos, "equipo", "equipos",
+                         ayuda="En fútbol de bardas los mismos equipos juegan en todas las categorías: "
+                               "regístralos una sola vez y aparecerán en los partidos de cualquier categoría."
+                         if bardas else "")
+        # En bardas los equipos no se separan por categoría
+        self.categorias = [] if bardas else app.ligas.categorias.listar(liga.id, solo_activos=True)
+        self.nombres_categoria = {} if bardas else {c.id: c.nombre for c in app.ligas.categorias.listar(liga.id)}
         self.filtro_categoria = TODAS
 
     def _selector_categoria(self, valor: int | None = None) -> ft.Dropdown:
@@ -757,10 +763,19 @@ class PanelCategorias(PanelCatalogo):
         }
         bloque_montos = ft.Row(list(montos.values()), wrap=True, spacing=8, run_spacing=8)
 
+        def mostrar_montos(tipo: str | None) -> None:
+            # Solo las tarifas de los árbitros que lleva ese tipo de partido
+            permitidas = set(posiciones_permitidas(tipo or self.liga.modalidad))
+            for p, campo in montos.items():
+                campo.visible = p in permitidas
+
+        mostrar_montos(categoria.modalidad)
+
         def al_elegir_tipo(valor):
             # Elegir un tipo propio implica posiciones propias (las del tipo, editables)
             usar_pos_liga.value = valor == HEREDAR
             posiciones.disabled = usar_pos_liga.value
+            mostrar_montos(None if valor == HEREDAR else valor)
 
         modalidad = selector_modalidad(categoria.modalidad, casillas, self.page, heredar=True,
                                        al_cambiar=al_elegir_tipo, modalidad_heredada=self.liga.modalidad, width=320)
@@ -846,15 +861,16 @@ class PanelTarifas:
                 keyboard_type=ft.KeyboardType.NUMBER,
                 read_only=not editable,
             )
-            filas.append(
-                ft.DataRow(
-                    cells=[
-                        ft.DataCell(ft.Text(nombre, weight=ft.FontWeight.W_500)),
-                        ft.DataCell(casillas[clave]),
-                        ft.DataCell(montos[clave]),
-                    ]
-                )
+            fila = ft.DataRow(
+                cells=[
+                    ft.DataCell(ft.Text(nombre, weight=ft.FontWeight.W_500)),
+                    ft.DataCell(casillas[clave]),
+                    ft.DataCell(montos[clave]),
+                ]
             )
+            # Se oculta el renglón completo: una celda con su casilla oculta rompe la tabla
+            casillas[clave].data = fila
+            filas.append(fila)
         error = ft.Text("", color=ft.Colors.ERROR, visible=False)
         modalidad = selector_modalidad(self.liga.modalidad, casillas, self.page, width=320, disabled=not editable)
         mostrar_posiciones_de(casillas, self.liga.modalidad, marcar_defecto=False)

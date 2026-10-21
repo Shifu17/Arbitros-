@@ -222,6 +222,10 @@ def test_partidos_con_categoria(ligas, svc, liga):
     with pytest.raises(AvisosPendientes) as e:
         svc.crear_partido(j.id, cruzado)
     assert "Toros es de la categoría Plata" in e.value.avisos[0]
+    # En bardas los mismos equipos juegan en todas las categorías: sin aviso
+    cruzado.modalidad = "bardas"
+    cruzado.posiciones = ["central", "anotador"]
+    assert svc.crear_partido(j.id, cruzado).visitante.nombre == "Toros"
 
 
 def test_partidos_entre_solo_ligas_activas(ligas, svc, liga):
