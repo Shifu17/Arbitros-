@@ -141,7 +141,7 @@ def pantalla_recuperar(app) -> ft.Control:
         hint_text="XXXX-XXXX-XXXX-XXXX",
         capitalization=ft.TextCapitalization.CHARACTERS,
         autofocus=True,
-        input_filter=ft.InputFilter(regex_string=r"[a-zA-Z0-9-]", allow=True, replacement_string=""),
+        input_filter=filtros.solo("a-zA-Z0-9-"),
         max_length=19, counter="",
     )
     usuario = ft.TextField(label="Usuario administrador", prefix_icon=ft.Icons.PERSON, input_filter=filtros.USUARIO)

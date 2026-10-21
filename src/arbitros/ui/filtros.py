@@ -1,9 +1,10 @@
 """Filtros de escritura para los campos de texto: impiden teclear (o pegar) caracteres que no van.
 
-Flet usa el `FilteringTextInputFormatter` de Flutter: del texto nuevo se conservan solo los
-fragmentos que coinciden con la expresión. Por eso cada expresión describe UN carácter permitido
-(sin ^ ni $): así un carácter no permitido simplemente no entra. Con anclas, un carácter inválido
-podría vaciar el campo completo. Los servicios validan otra vez al guardar.
+Flet 1.0 compara el texto COMPLETO que quedaría tras cada cambio con la expresión y, si no
+coincide, descarta el cambio (deja el texto anterior). Por eso cada expresión describe el campo
+entero con anclas y `*`, para que el campo vacío también sea válido: con un patrón de un solo
+carácter no se podía borrar la última letra y sí se colaban caracteres no permitidos.
+Los servicios validan otra vez al guardar.
 """
 
 import flet as ft
@@ -11,22 +12,23 @@ import flet as ft
 LETRAS = "a-zA-ZáéíóúÁÉÍÓÚäëïöüÄËÏÖÜñÑ"
 
 
-def _permitir(caracter: str) -> ft.InputFilter:
-    return ft.InputFilter(regex_string=caracter, allow=True, replacement_string="")
+def solo(caracteres: str) -> ft.InputFilter:
+    """Filtro que solo deja escribir `caracteres` (contenido de una clase de regex, p. ej. "0-9")."""
+    return ft.InputFilter(regex_string=rf"^[{caracteres}]*$", allow=True, replacement_string="")
 
 
 # Nombres de personas: letras (con acentos y ñ), espacios, punto, apóstrofo y guion. Sin números.
-NOMBRE_PERSONA = _permitir(rf"[{LETRAS} .'-]")
+NOMBRE_PERSONA = solo(rf"{LETRAS} .'-")
 # Usuario para entrar: sin espacios ni acentos
-USUARIO = _permitir(r"[a-zA-Z0-9._-]")
+USUARIO = solo(r"a-zA-Z0-9._-")
 # Solo dígitos (teléfono, números de jornada, minutos)
-DIGITOS = _permitir(r"[0-9]")
+DIGITOS = solo(r"0-9")
 # Dinero: dígitos y punto decimal (350 · 350.50)
-MONTO = _permitir(r"[0-9.]")
+MONTO = solo(r"0-9.")
 # Fecha dd/mm/aaaa
-FECHA = _permitir(r"[0-9/]")
+FECHA = solo(r"0-9/")
 # Hora: 10 · 1030 · 10:30 · 4:30 pm
-HORA = _permitir(r"[0-9:. aApPmM]")
+HORA = solo(r"0-9:. aApPmM")
 
 DIGITOS_TELEFONO = 10
 
