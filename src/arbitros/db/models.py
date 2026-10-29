@@ -178,6 +178,8 @@ class Categoria(Base):
     # None = usa el tipo de partido y las posiciones por defecto de la liga
     modalidad: Mapped[str | None] = mapped_column(String(20))
     posiciones_defecto: Mapped[str | None] = mapped_column(String(100))
+    # Arbitraje que paga cada equipo por partido en esta categoría; None = el de la liga
+    cuota_equipo_centavos: Mapped[int | None] = mapped_column(Integer)
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
 
     @property
@@ -193,8 +195,6 @@ class TarifaCategoria(Base):
     categoria_id: Mapped[int] = mapped_column(ForeignKey("categorias.id", ondelete="CASCADE"), primary_key=True)
     posicion: Mapped[str] = mapped_column(String(20), primary_key=True)
     monto_centavos: Mapped[int] = mapped_column(Integer, default=0)
-    # Lo que paga CADA equipo por esa posición; None = la mitad de la tarifa del árbitro
-    cuota_equipo_centavos: Mapped[int | None] = mapped_column(Integer)
 
 
 class Equipo(Base):
@@ -231,8 +231,19 @@ class Tarifa(Base):
     modalidad: Mapped[str] = mapped_column(String(20), primary_key=True)
     posicion: Mapped[str] = mapped_column(String(20), primary_key=True)
     monto_centavos: Mapped[int] = mapped_column(Integer, default=0)
-    # Lo que paga CADA equipo por esa posición; None = la mitad de la tarifa del árbitro
-    cuota_equipo_centavos: Mapped[int | None] = mapped_column(Integer)
+
+
+class CuotaEquipo(Base):
+    """Arbitraje que paga CADA equipo por partido en un tipo de partido de una liga (p. ej. $450).
+
+    Un tipo de partido sin fila usa el del tipo principal de la liga.
+    """
+
+    __tablename__ = "cuotas_equipo"
+
+    liga_id: Mapped[int] = mapped_column(ForeignKey("ligas.id", ondelete="CASCADE"), primary_key=True)
+    modalidad: Mapped[str] = mapped_column(String(20), primary_key=True)
+    monto_centavos: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class Jornada(Base):
@@ -365,8 +376,8 @@ FORMAS_PAGO = {
 class CobroEquipo(Base):
     """Lo que un equipo pagó del arbitraje de un partido. Sin fila = no ha pagado nada.
 
-    Por defecto cada equipo paga la mitad del arbitraje (services.cobros); `cuota_centavos`
-    se congela al registrar el pago para que cambiar las tarifas no altere cuentas ya hechas.
+    `cuota_centavos` se congela al registrar el pago para que cambiar el arbitraje establecido
+    no altere cuentas ya hechas (ver services.cobros).
     """
 
     __tablename__ = "cobros_equipos"
@@ -376,13 +387,28 @@ class CobroEquipo(Base):
     partido_id: Mapped[int] = mapped_column(ForeignKey("partidos.id", ondelete="CASCADE"), index=True)
     equipo_id: Mapped[int] = mapped_column(ForeignKey("equipos.id", ondelete="CASCADE"), index=True)
     cuota_centavos: Mapped[int | None] = mapped_column(Integer)
-    # Desglose congelado junto con la cuota: "posicion:centavos,..."
-    desglose: Mapped[str | None] = mapped_column(String(200))
     pagado_centavos: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     fecha_pago: Mapped[date | None] = mapped_column(Date)
     forma_pago: Mapped[str | None] = mapped_column(String(20))
     nota: Mapped[str | None] = mapped_column(String(250))
     creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class AbonoEquipo(Base):
+    """Pago adelantado de un equipo (o de antes de usar la app) que se aplica a sus arbitrajes
+    pendientes en orden de fecha; lo que sobra es saldo a favor (ver services.cobros)."""
+
+    __tablename__ = "abonos_equipos"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    equipo_id: Mapped[int] = mapped_column(ForeignKey("equipos.id", ondelete="CASCADE"), index=True)
+    fecha: Mapped[date] = mapped_column(Date)
+    monto_centavos: Mapped[int] = mapped_column(Integer)
+    forma_pago: Mapped[str | None] = mapped_column(String(20))
+    nota: Mapped[str | None] = mapped_column(String(250))
+    creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    equipo: Mapped["Equipo"] = relationship(lazy="joined")
 
 
 class CedulaArchivo(Base):

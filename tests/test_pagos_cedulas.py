@@ -179,7 +179,7 @@ def test_reportes_y_excel(ctx, tmp_path):
     ruta = rep.exportar_excel(tmp_path / "reporte", AYER - timedelta(days=30), MANANA)
     libro = openpyxl.load_workbook(ruta)
     assert libro.sheetnames == ["Resumen por árbitro", "Arbitrajes", "Detalle de pagos", "Historial de pagos",
-                               "Pagos de equipos", "Detalle de equipos", "Cédulas"]
+                               "Pagos de equipos", "Detalle de equipos", "Pagos adelantados", "Cédulas"]
     hoja = libro["Resumen por árbitro"]
     assert hoja["A5"].value == "Ana López" and hoja["F6"].value == 850.0
 
@@ -188,55 +188,85 @@ def _cobro(ctx, partido, local=True):
     return next(l for l in ctx["cobros"].lineas() if l.partido.id == partido.id and l.es_local == local)
 
 
-def test_cada_equipo_paga_la_mitad_del_arbitraje(ctx):
+def _arbitraje(ctx, monto=45000):
+    ctx["ligas"].configurar_cuota_equipo(ctx["liga"].id, "futbol_11", monto)
+
+
+def test_sin_arbitraje_establecido_no_se_cobra(ctx):
+    assert ctx["cobros"].lineas() == []
+
+
+def test_cada_equipo_paga_el_arbitraje_establecido(ctx):
+    _arbitraje(ctx)
     local, visita = _cobro(ctx, ctx["p1"]), _cobro(ctx, ctx["p1"], local=False)
     assert local.equipo.nombre == "Tigres" and visita.equipo.nombre == "Pumas"
-    assert local.desglose == [("central", 17500), ("asistente_1", 10000)] and local.cuota == 27500
-    assert visita.cuota == 27500 and local.saldo == 27500 and not local.cuota_fija
-    assert _cobro(ctx, ctx["p2"]).cuota == 40000  # tarifas de Premier
+    assert local.cuota == visita.cuota == 45000 and local.saldo == 45000 and not local.cuota_fija
+    # Premier no tiene arbitraje propio: usa el de la liga; con uno propio, ese
+    assert _cobro(ctx, ctx["p2"]).cuota == 45000
+    ctx["ligas"].configurar_categoria(ctx["premier"].id, None, {"central": 50000, "asistente_1": 30000},
+                                      cuota_equipo=60000)
+    assert _cobro(ctx, ctx["p2"]).cuota == 60000 and _cobro(ctx, ctx["p1"]).cuota == 45000
 
 
-def test_centavo_impar_lo_paga_el_local(ctx):
-    ctx["ligas"].configurar_posiciones_y_tarifas(ctx["liga"].id, ["central", "asistente_1"],
-                                                 {"central": 35001, "asistente_1": 20000})
-    assert _cobro(ctx, ctx["p1"]).cuota == 27501 and _cobro(ctx, ctx["p1"], False).cuota == 27500
+def test_arbitraje_por_tipo_de_partido(ctx):
+    ligas, liga = ctx["ligas"], ctx["liga"]
+    _arbitraje(ctx)
+    ligas.configurar_cuota_equipo(liga.id, "futbol_7", 25000)
+    ligas.configurar_tarifas_tipo(liga.id, "futbol_7", {"central": 30000})
+    p = ctx["jornadas"].crear_partido(ctx["j1"].id, DatosPartido(
+        AYER, time(13), ctx["p1"].local_id, ctx["p1"].visitante_id, ctx["p1"].campo_id, ["central"],
+        categoria_id=ctx["p1"].categoria_id, modalidad="futbol_7"), forzar=True)
+    AsignacionService(ctx["pagos"].db, ConfiguracionService(ctx["pagos"].db)).asignar(
+        p.id, "central", ctx["ana"].id, forzar=True)
+    assert _cobro(ctx, p).cuota == 25000 and _linea(ctx, p, ctx["ana"]).tarifa == 30000
+    assert ligas.tarifa_para(liga.id, None, "central", "bardas") == 35000  # sin tarifas propias: las del principal
+    assert ligas.cuota_equipo(liga.id, "bardas") == 45000 and ligas.cuota_equipo(liga.id, "bardas", propia=True) is None
+    # Quitar el arbitraje propio del tipo vuelve a usar el del principal
+    ligas.configurar_cuota_equipo(liga.id, "futbol_7", None)
+    ligas.configurar_tarifas_tipo(liga.id, "futbol_7", {"central": 0})
+    assert _cobro(ctx, p).cuota == 45000 and not ligas.tiene_tarifas_propias(liga.id, "futbol_7")
+    with pytest.raises(ErrorValidacion):
+        ligas.configurar_cuota_equipo(liga.id, "futbol_7", -1)
+    with pytest.raises(ErrorValidacion):
+        ligas.configurar_cuota_equipo(liga.id, "voleibol", 100)
 
 
 def test_registrar_pago_de_equipo_y_congelar_cuota(ctx):
+    _arbitraje(ctx)
     cob, p1 = ctx["cobros"], ctx["p1"]
     tigres = _cobro(ctx, p1).equipo
-    cob.registrar(p1.id, tigres.id, 20000, fecha=AYER, forma_pago="efectivo", nota="Faltan 75")
+    cob.registrar(p1.id, tigres.id, 20000, fecha=AYER, forma_pago="efectivo", nota="Faltan 250")
     l = _cobro(ctx, p1)
-    assert l.pagado == 20000 and l.saldo == 7500 and l.cuota_fija and l.fecha_pago == AYER and l.forma_pago == "efectivo"
-    ctx["ligas"].configurar_posiciones_y_tarifas(ctx["liga"].id, ["central", "asistente_1"],
-                                                 {"central": 90000, "asistente_1": 20000})
-    assert _cobro(ctx, p1).cuota == 27500  # congelada
-    assert _cobro(ctx, p1, False).cuota == 55000  # el visitante aún no paga: usa la tarifa nueva
+    assert l.pagado == 20000 and l.saldo == 25000 and l.cuota_fija and l.fecha_pago == AYER and l.forma_pago == "efectivo"
+    _arbitraje(ctx, 50000)
+    assert _cobro(ctx, p1).cuota == 45000  # congelada
+    assert _cobro(ctx, p1, False).cuota == 50000  # el visitante aún no paga: usa el arbitraje nuevo
     with pytest.raises(ErrorValidacion):
-        cob.registrar(p1.id, tigres.id, 30000)
+        cob.registrar(p1.id, tigres.id, 50000)
     with pytest.raises(ErrorValidacion):
         cob.registrar(p1.id, tigres.id, 100, forma_pago="cheque")
     with pytest.raises(ErrorValidacion):
         cob.registrar(ctx["p2"].id, tigres.id, 100)  # no juega ese partido
-    # Un equipo paga todo el arbitraje: se le corrige la cuota y queda un ajuste en el desglose
-    cob.registrar(p1.id, tigres.id, 55000, cuota=55000)
-    l = _cobro(ctx, p1)
-    assert l.saldo == 0 and l.ajuste == 27500 and l.desglose == [("central", 17500), ("asistente_1", 10000)]
+    # Un equipo paga todo el arbitraje: se le corrige la cuota
+    cob.registrar(p1.id, tigres.id, 90000, cuota=90000)
+    assert _cobro(ctx, p1).saldo == 0 and _cobro(ctx, p1).cuota == 90000
     cob.deshacer(p1.id, tigres.id)
-    assert _cobro(ctx, p1).pagado == 0 and not _cobro(ctx, p1).cuota_fija
+    assert _cobro(ctx, p1).pagado == 0 and not _cobro(ctx, p1).cuota_fija and _cobro(ctx, p1).cuota == 50000
 
 
 def test_pago_completo_y_resumen_por_equipo(ctx):
+    _arbitraje(ctx)
     cob = ctx["cobros"]
     claves = [l.clave for l in cob.lineas(jornada_id=ctx["j1"].id)]
     assert len(claves) == 4 and cob.pago_completo(claves[:3], forma_pago="transferencia") == 3
     assert cob.pago_completo(claves[:3]) == 0
     resumen = {r.equipo.nombre: r for r in cob.resumen_por_equipo()}
-    assert resumen["Toros"].pendiente == 40000 and resumen["Tigres"].pendiente == 0 and resumen["Tigres"].pagado == 27500
-    assert resumen["Leones"].por_jugar == 27500 and resumen["Leones"].pendiente == 0
+    assert resumen["Toros"].pendiente == 45000 and resumen["Tigres"].pendiente == 0 and resumen["Tigres"].pagado == 45000
+    assert resumen["Leones"].por_jugar == 45000 and resumen["Leones"].pendiente == 0
 
 
 def test_cancelado_no_cobra(ctx):
+    _arbitraje(ctx)
     p1 = ctx["p1"]
     ctx["jornadas"].cambiar_estado([p1.id], ESTADO_CANCELADO, "Lluvia")
     assert not [l for l in ctx["cobros"].lineas() if l.partido.id == p1.id]
@@ -244,44 +274,59 @@ def test_cancelado_no_cobra(ctx):
         ctx["cobros"].registrar(p1.id, p1.local_id, 100)
 
 
-def test_recibo_desglosado(ctx):
+def test_recibo(ctx):
+    _arbitraje(ctx)
     cob, p1 = ctx["cobros"], ctx["p1"]
-    cob.registrar(p1.id, p1.local_id, 27500, fecha=AYER, forma_pago="al_arbitro")
+    cob.registrar(p1.id, p1.local_id, 45000, fecha=AYER, forma_pago="al_arbitro")
     recibo = cob.recibo(p1.local_id)
-    assert recibo.equipo.nombre == "Tigres" and recibo.total == 27500 and recibo.saldo == 0
+    assert recibo.equipo.nombre == "Tigres" and recibo.total == 45000 and recibo.saldo == 0
     texto = cob.recibo_texto(recibo)
-    assert "Recibo de arbitrajes · Tigres" in texto and "Central: $175" in texto and "Pagado" in texto
+    assert "Recibo de arbitrajes · Tigres" in texto and "Arbitraje $450" in texto and "Pagado" in texto
     from arbitros.services.recibo_imagen import generar_pdf, generar_png
     assert generar_png(recibo)[1:4] == b"PNG" and generar_pdf(recibo).startswith(b"%PDF")
-    vacio = cob.recibo(p1.local_id, jornada_id=ctx["j1"].id)
-    assert vacio.periodo == "Jornada 1"
+    assert cob.recibo(p1.local_id, jornada_id=ctx["j1"].id).periodo == "Jornada 1"
 
 
-def test_tarifas_y_cuotas_por_tipo_de_partido(ctx):
-    ligas, liga = ctx["ligas"], ctx["liga"]
-    # Fútbol 11 (tipo principal): monto establecido que paga cada equipo
-    ligas.configurar_posiciones_y_tarifas(liga.id, ["central", "asistente_1"], {"central": 35000, "asistente_1": 20000},
-                                          cuotas_equipo={"central": 25000, "asistente_1": 15000})
+def test_pago_adelantado_cubre_partidos_en_orden(ctx):
+    _arbitraje(ctx)
+    cob = ctx["cobros"]
+    tigres = _cobro(ctx, ctx["p1"]).equipo
+    leones = _cobro(ctx, ctx["p3"]).equipo
+    # Tigres dejó $600 de antes: cubre su partido de $450 y le quedan $150 a favor
+    abono = cob.registrar_abono(tigres.id, 60000, fecha=AYER - timedelta(days=30), forma_pago="efectivo",
+                                nota="Pagó la temporada pasada")
     l = _cobro(ctx, ctx["p1"])
-    assert l.desglose == [("central", 25000), ("asistente_1", 15000)] and l.cuota == 40000
-    assert _cobro(ctx, ctx["p1"], local=False).cuota == 40000  # los dos equipos pagan lo establecido
-    # Fútbol 7 con sus propios montos
-    ligas.configurar_tarifas_tipo(liga.id, "futbol_7", {"central": 30000}, {"central": 20000})
-    assert ligas.tarifa_para(liga.id, None, "central", "futbol_7") == 30000
-    assert ligas.tarifa_para(liga.id, None, "central", "bardas") == 35000  # sin montos propios: los del principal
-    p = ctx["jornadas"].crear_partido(ctx["j1"].id, DatosPartido(
-        AYER, time(13), ctx["p1"].local_id, ctx["p1"].visitante_id, ctx["p1"].campo_id, ["central"],
-        categoria_id=ctx["p1"].categoria_id, modalidad="futbol_7"), forzar=True)
-    AsignacionService(ctx["pagos"].db, ConfiguracionService(ctx["pagos"].db)).asignar(
-        p.id, "central", ctx["ana"].id, forzar=True)
-    assert _linea(ctx, p, ctx["ana"]).tarifa == 30000
-    assert _cobro(ctx, p).desglose == [("central", 20000)]
-    # Vaciar los montos de un tipo vuelve a usar los del principal
-    ligas.configurar_tarifas_tipo(liga.id, "futbol_7", {"central": 0}, {"central": None})
-    assert not ligas.tiene_tarifas_propias(liga.id, "futbol_7") and _cobro(ctx, p).cuota == 25000
-    # Categoría con montos propios
-    ligas.configurar_categoria(ctx["premier"].id, None, {"central": 50000, "asistente_1": 30000},
-                               cuotas_equipo={"central": 30000, "asistente_1": None})
-    assert _cobro(ctx, ctx["p2"]).desglose == [("central", 30000), ("asistente_1", 15000)]
+    assert l.abonado == 45000 and l.saldo == 0 and l.pagado == 0 and l.pagado_total == 45000
+    assert cob.saldo_a_favor(tigres.id) == 15000
+    # Pagos parciales directos: el adelanto cubre solo lo que falta
+    cob.registrar(ctx["p1"].id, tigres.id, 40000)
+    assert _cobro(ctx, ctx["p1"]).abonado == 5000 and cob.saldo_a_favor(tigres.id) == 55000
+    # Un adelanto menor que lo que debe deja saldo pendiente
+    cob.registrar_abono(leones.id, 20000)
+    assert _cobro(ctx, ctx["p3"]).saldo == 25000
+    # «Pagó completo» respeta lo que ya cubrió el adelanto
+    cob.pago_completo([_cobro(ctx, ctx["p3"]).clave])
+    l = _cobro(ctx, ctx["p3"])
+    assert l.pagado == 25000 and l.abonado == 20000 and l.saldo == 0
+    resumen = {r.equipo.nombre: r for r in cob.resumen_por_equipo()}
+    assert resumen["Tigres"].a_favor == 55000 and resumen["Tigres"].pagado == 45000
+    recibo = cob.recibo(tigres.id)
+    assert recibo.a_favor == 55000 and len(recibo.abonos) == 1
+    texto = cob.recibo_texto(recibo)
+    assert "Pagos adelantados" in texto and "Saldo a favor: $550" in texto
+    from arbitros.services.recibo_imagen import generar_png
+    assert generar_png(recibo)[1:4] == b"PNG"
+    # Borrar el adelanto lo deshace todo
+    cob.eliminar_abono(abono.id)
+    assert _cobro(ctx, ctx["p1"]).saldo == 5000 and cob.saldo_a_favor(tigres.id) == 0
     with pytest.raises(ErrorValidacion):
-        ligas.configurar_tarifas_tipo(liga.id, "futbol_7", {"central": 100}, {"central": -1})
+        cob.registrar_abono(tigres.id, 0)
+
+
+def test_saldo_a_favor_sin_partidos_en_el_periodo(ctx):
+    _arbitraje(ctx)
+    cob = ctx["cobros"]
+    halcones = _cobro(ctx, ctx["p3"], local=False).equipo
+    cob.registrar_abono(halcones.id, 100000)
+    resumen = {r.equipo.nombre: r for r in cob.resumen_por_equipo(AYER, AYER)}
+    assert resumen["Halcones"].partidos == 0 and resumen["Halcones"].a_favor == 55000

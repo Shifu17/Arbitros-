@@ -132,13 +132,14 @@ class VistaReportes:
                     ft.DataCell(ft.Text(formatear_monto(r.pagado), color=tema.EXITO_TEXTO if r.pagado else None)),
                     ft.DataCell(ft.Text(formatear_monto(r.pendiente), weight=ft.FontWeight.BOLD,
                                         color=tema.PELIGRO_TEXTO if r.pendiente else tema.EXITO_TEXTO)),
+                    ft.DataCell(ft.Text(formatear_monto(r.a_favor), color=tema.EXITO_TEXTO if r.a_favor else None)),
                     ft.DataCell(ft.IconButton(ft.Icons.RECEIPT_LONG, tooltip="Ver recibo desglosado",
                                               on_click=lambda _, r=r: self._recibo(r.equipo.id))),
                 ]))
             tabla = tarjeta(ft.Row([ft.DataTable(
                 columns=[ft.DataColumn(ft.Text(t), numeric=n) for t, n in (
                     ("Equipo", False), ("Partidos", True), ("Arbitrajes", True), ("Pagado", True), ("Debe", True),
-                    ("Recibo", False))],
+                    ("A favor", True), ("Recibo", False))],
                 rows=filas, heading_row_color=ft.Colors.SURFACE_CONTAINER_HIGHEST, data_row_max_height=60,
             )], scroll=ft.ScrollMode.AUTO))
         return [ft.Row([ft.Text("Arbitrajes pagados por equipo", size=18, weight=ft.FontWeight.W_600),

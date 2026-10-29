@@ -108,5 +108,5 @@ def test_tarifas_existentes_quedan_en_el_tipo_principal(tmp_path):
     ligas = LigaService(db)
     assert ligas.tiene_tarifas_propias(1, "futbol_7") and not ligas.tiene_tarifas_propias(1, "futbol_11")
     assert ligas.tarifas(1)["central"] == 25000 and ligas.tarifas(2, "bardas")["central"] == 40000
-    assert ligas.cuotas_equipo(2)["central"] is None
+    assert ligas.cuota_equipo(2) is None
     db.cerrar()

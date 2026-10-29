@@ -1,4 +1,4 @@
-"""Recibo desglosado de arbitrajes de un equipo, como PNG o PDF (mismo estilo que la imagen del rol)."""
+"""Recibo de arbitrajes de un equipo partido por partido, como PNG o PDF (mismo estilo que la imagen del rol)."""
 
 import io
 from datetime import datetime
@@ -6,7 +6,7 @@ from datetime import datetime
 from PIL import Image, ImageDraw
 
 from arbitros.config import ORGANIZACION
-from arbitros.db.models import FORMAS_PAGO, POSICIONES
+from arbitros.db.models import FORMAS_PAGO
 from arbitros.services.cobros import LineaCobro, ReciboEquipo
 from arbitros.services.dinero import formatear_monto
 from arbitros.services.rol_imagen import (
@@ -83,9 +83,27 @@ def _componer(l: _Lienzo, r: ReciboEquipo) -> int:
     for linea in r.lineas:
         y += _tarjeta(l, linea, y, f_grupo, f_normal, f_negrita, f_chico) + 14
 
+    if r.abonos:
+        y += 10
+        y += l.texto(MARGEN, y, "PAGOS ADELANTADOS", f_grupo, ROJO_MARCA, util) + 8
+        alto_linea = int(f_normal.size * 1.35)
+        alto_caja = 20 + sum(alto_linea + (int(f_chico.size * 1.25) if a.nota else 0) for a in r.abonos) + 16
+        l.caja((MARGEN, y, ANCHO - MARGEN, y + alto_caja), BLANCO, BORDE)
+        yy = y + 20
+        for a in r.abonos:
+            texto = f"{a.fecha:%d/%m/%Y}" + (f" · {FORMAS_PAGO.get(a.forma_pago, a.forma_pago)}" if a.forma_pago else "")
+            l.texto(MARGEN + 28, yy, texto, f_normal, TEXTO, util - 260)
+            _derecha(l, ANCHO - MARGEN - 28, yy, formatear_monto(a.monto_centavos), f_normal, VERDE)
+            yy += alto_linea
+            if a.nota:
+                yy += l.texto(MARGEN + 28, yy, a.nota, f_chico, GRIS, util - 56)
+        y += alto_caja + 14
+
     # Totales
     y += 10
     filas = [("Total de arbitrajes", r.total, TEXTO), ("Pagado", r.pagado, VERDE)]
+    if r.a_favor:
+        filas.append(("Saldo a favor", r.a_favor, VERDE))
     alto_fila = int(f_grupo.size * 1.5)
     alto_tot = 24 + alto_fila * (len(filas) + 1) + 24
     l.caja((MARGEN, y, ANCHO - MARGEN, y + alto_tot), AMARILLO_SUAVE, radio=12)
@@ -105,7 +123,7 @@ def _componer(l: _Lienzo, r: ReciboEquipo) -> int:
 
 
 def _tarjeta(l: _Lienzo, linea: LineaCobro, y: int, f_grupo, f_normal, f_negrita, f_chico) -> int:
-    """Un partido con su desglose por posición. Devuelve su altura."""
+    """Un partido: arbitraje, lo pagado y lo que debe. Devuelve su altura."""
     x0, x1 = MARGEN, ANCHO - MARGEN
     xi, xd = x0 + 28, x1 - 28
     ancho = xd - xi
@@ -117,19 +135,10 @@ def _tarjeta(l: _Lienzo, linea: LineaCobro, y: int, f_grupo, f_normal, f_negrita
         detalle = " · ".join(x for x in (f"{fecha_larga(p.fecha)} {p.hora:%H:%M}", linea.jornada,
                                          p.categoria.nombre if p.categoria else None,
                                          "Local" if linea.es_local else "Visitante") if x)
-        yy += lienzo.texto(xi, yy, detalle, f_chico, GRIS, ancho) + 10
-        conceptos = [(POSICIONES[pos], m) for pos, m in linea.desglose]
-        if linea.ajuste:
-            conceptos.append(("Ajuste", linea.ajuste))
-        for concepto, monto in conceptos:
-            lienzo.texto(xi + 20, yy, concepto, f_normal, TEXTO, ancho)
-            signo = "−" if monto < 0 else ""
-            _derecha(lienzo, xd, yy, signo + formatear_monto(abs(monto)), f_normal, TEXTO)
-            yy += int(f_normal.size * 1.35)
-        yy += 6
+        yy += lienzo.texto(xi, yy, detalle, f_chico, GRIS, ancho) + 6
         lienzo.rect((xi, yy, xd, yy + 2), BORDE)
         yy += 12
-        lienzo.texto(xi, yy, "Cuota", f_negrita, TEXTO, ancho)
+        lienzo.texto(xi, yy, "Arbitraje", f_negrita, TEXTO, ancho)
         _derecha(lienzo, xd, yy, formatear_monto(linea.cuota), f_negrita, TEXTO)
         yy += int(f_negrita.size * 1.35)
         if linea.pagado:
@@ -138,6 +147,10 @@ def _tarjeta(l: _Lienzo, linea: LineaCobro, y: int, f_grupo, f_normal, f_negrita
                 pago += f" · {FORMAS_PAGO.get(linea.forma_pago, linea.forma_pago)}"
             lienzo.texto(xi, yy, pago, f_normal, VERDE, ancho - 200)
             _derecha(lienzo, xd, yy, formatear_monto(linea.pagado), f_normal, VERDE)
+            yy += int(f_normal.size * 1.35)
+        if linea.abonado:
+            lienzo.texto(xi, yy, "Cubierto con pago adelantado", f_normal, VERDE, ancho - 200)
+            _derecha(lienzo, xd, yy, formatear_monto(linea.abonado), f_normal, VERDE)
             yy += int(f_normal.size * 1.35)
         if linea.saldo:
             lienzo.texto(xi, yy, "Debe", f_negrita, ROJO, ancho)

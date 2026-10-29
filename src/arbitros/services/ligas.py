@@ -14,6 +14,7 @@ from arbitros.db.models import (
     TIPO_TORNEO,
     Campo,
     Categoria,
+    CuotaEquipo,
     Equipo,
     Jornada,
     Liga,
@@ -222,11 +223,15 @@ class LigaService:
     def _filas_tarifa(self, liga_id: int, modalidad: str | None) -> dict[str, Tarifa]:
         """Filas del tipo pedido; si ese tipo no tiene montos propios, las del tipo principal de la liga."""
         with self.db.sesion() as s:
-            liga = s.get(Liga, liga_id)
-            principal = (liga.modalidad if liga else None) or FUTBOL_11
+            principal = self._principal(s, liga_id)
             todas = list(s.scalars(select(Tarifa).where(Tarifa.liga_id == liga_id)))
         propias = {t.posicion: t for t in todas if t.modalidad == (modalidad or principal)}
         return propias or {t.posicion: t for t in todas if t.modalidad == principal}
+
+    @staticmethod
+    def _principal(s, liga_id: int) -> str:
+        liga = s.get(Liga, liga_id)
+        return (liga.modalidad if liga else None) or FUTBOL_11
 
     def tiene_tarifas_propias(self, liga_id: int, modalidad: str) -> bool:
         with self.db.sesion() as s:
@@ -238,20 +243,14 @@ class LigaService:
         filas = self._filas_tarifa(liga_id, modalidad)
         return {p: filas[p].monto_centavos if p in filas else 0 for p in POSICIONES}
 
-    def cuotas_equipo(self, liga_id: int, modalidad: str | None = None) -> dict[str, int | None]:
-        """Lo que paga cada equipo por posición; None = no establecido (paga la mitad de la tarifa)."""
-        filas = self._filas_tarifa(liga_id, modalidad)
-        return {p: filas[p].cuota_equipo_centavos if p in filas else None for p in POSICIONES}
-
     def configurar_posiciones_y_tarifas(self, liga_id: int, posiciones: list[str], tarifas: dict[str, int],
-                                        modalidad: str | None = None,
-                                        cuotas_equipo: dict[str, int | None] | None = None) -> None:
-        """Tipo principal, posiciones por defecto y montos de ese tipo principal."""
+                                        modalidad: str | None = None) -> None:
+        """Tipo principal, posiciones por defecto y tarifas de ese tipo principal."""
         if modalidad is not None and modalidad not in MODALIDADES:
             raise ErrorValidacion("Tipo de partido inválido.")
         if not posiciones_a_csv(posiciones):
             raise ErrorValidacion("Marca al menos una posición por defecto.")
-        _validar_montos(tarifas, cuotas_equipo)
+        _validar_montos(tarifas.values())
         with self.db.sesion() as s:
             liga = s.get(Liga, liga_id)
             if not liga:
@@ -262,36 +261,60 @@ class LigaService:
             if modalidad is not None:
                 liga.modalidad = modalidad
             tipo = liga.modalidad or FUTBOL_11
-        self._guardar_montos(liga_id, tipo, tarifas, cuotas_equipo)
+        self._guardar_tarifas(liga_id, tipo, tarifas)
 
-    def configurar_tarifas_tipo(self, liga_id: int, modalidad: str, tarifas: dict[str, int],
-                                cuotas_equipo: dict[str, int | None] | None = None) -> None:
-        """Montos de otro tipo de partido de la liga. Todo vacío = usar los del tipo principal."""
+    def configurar_tarifas_tipo(self, liga_id: int, modalidad: str, tarifas: dict[str, int]) -> None:
+        """Tarifas de otro tipo de partido de la liga. Todo en 0 = usar las del tipo principal."""
         if modalidad not in MODALIDADES:
             raise ErrorValidacion("Tipo de partido inválido.")
-        _validar_montos(tarifas, cuotas_equipo)
-        if not any(tarifas.values()) and not any(v is not None for v in (cuotas_equipo or {}).values()):
+        _validar_montos(tarifas.values())
+        if not any(tarifas.values()):
             with self.db.sesion() as s:
                 s.execute(delete(Tarifa).where(Tarifa.liga_id == liga_id, Tarifa.modalidad == modalidad))
             return
-        self._guardar_montos(liga_id, modalidad, tarifas, cuotas_equipo)
+        self._guardar_tarifas(liga_id, modalidad, tarifas)
 
-    def _guardar_montos(self, liga_id: int, modalidad: str, tarifas: dict[str, int],
-                        cuotas_equipo: dict[str, int | None] | None) -> None:
-        cuotas = cuotas_equipo or {}
+    def _guardar_tarifas(self, liga_id: int, modalidad: str, tarifas: dict[str, int]) -> None:
         with self.db.sesion() as s:
-            previas = {t.posicion: t for t in s.scalars(select(Tarifa).where(
-                Tarifa.liga_id == liga_id, Tarifa.modalidad == modalidad))}
-            for posicion in POSICIONES:
-                if posicion not in tarifas and posicion not in cuotas:
-                    continue
-                fila = previas.get(posicion) or Tarifa(liga_id=liga_id, modalidad=modalidad, posicion=posicion,
-                                                       monto_centavos=0)
-                if posicion in tarifas:
-                    fila.monto_centavos = tarifas[posicion]
-                if cuotas_equipo is not None:
-                    fila.cuota_equipo_centavos = cuotas.get(posicion)
-                s.add(fila)
+            for posicion, monto in tarifas.items():
+                if posicion in POSICIONES:
+                    s.merge(Tarifa(liga_id=liga_id, modalidad=modalidad, posicion=posicion, monto_centavos=monto))
+
+    # --- Arbitraje que paga cada equipo ----------------------------------
+
+    def cuota_equipo(self, liga_id: int, modalidad: str | None = None, propia: bool = False) -> int | None:
+        """Arbitraje por partido que paga cada equipo en ese tipo de partido (None = tipo principal).
+
+        Si el tipo no tiene uno propio usa el del tipo principal, salvo con `propia=True`.
+        None = no hay arbitraje establecido.
+        """
+        with self.db.sesion() as s:
+            principal = self._principal(s, liga_id)
+            filas = {c.modalidad: c.monto_centavos
+                     for c in s.scalars(select(CuotaEquipo).where(CuotaEquipo.liga_id == liga_id))}
+        tipo = modalidad or principal
+        return filas.get(tipo) if propia or tipo in filas else filas.get(principal)
+
+    def configurar_cuota_equipo(self, liga_id: int, modalidad: str, monto: int | None) -> None:
+        """`monto=None` = sin arbitraje propio para ese tipo (usa el del tipo principal)."""
+        if modalidad not in MODALIDADES:
+            raise ErrorValidacion("Tipo de partido inválido.")
+        _validar_montos([monto or 0])
+        with self.db.sesion() as s:
+            if monto is None:
+                s.execute(delete(CuotaEquipo).where(CuotaEquipo.liga_id == liga_id, CuotaEquipo.modalidad == modalidad))
+            else:
+                s.merge(CuotaEquipo(liga_id=liga_id, modalidad=modalidad, monto_centavos=monto))
+
+    def cuota_equipo_para(self, liga_id: int, categoria_id: int | None, modalidad: str | None = None) -> int:
+        """Lo que paga cada equipo por un partido: el arbitraje de la categoría si tiene uno propio,
+        si no el de la liga para ese tipo de partido. 0 = no hay arbitraje establecido."""
+        if categoria_id is not None:
+            with self.db.sesion() as s:
+                categoria = s.get(Categoria, categoria_id)
+                if categoria and categoria.cuota_equipo_centavos is not None:
+                    return categoria.cuota_equipo_centavos
+        return self.cuota_equipo(liga_id, modalidad) or 0
 
     # --- Categorías (sub-ligas) -------------------------------------------
 
@@ -302,23 +325,16 @@ class LigaService:
                      for t in s.scalars(select(TarifaCategoria).where(TarifaCategoria.categoria_id == categoria_id))}
         return {p: filas.get(p, 0) for p in POSICIONES} if filas else None
 
-    def cuotas_equipo_categoria(self, categoria_id: int) -> dict[str, int | None] | None:
-        """Lo que paga cada equipo en la categoría (si tiene tarifas propias), o None si usa lo de la liga."""
-        with self.db.sesion() as s:
-            filas = {t.posicion: t.cuota_equipo_centavos
-                     for t in s.scalars(select(TarifaCategoria).where(TarifaCategoria.categoria_id == categoria_id))}
-        return {p: filas.get(p) for p in POSICIONES} if filas else None
-
     def configurar_categoria(
         self, categoria_id: int, posiciones: list[str] | None, tarifas: dict[str, int] | None,
-        modalidad: str | None = None, cuotas_equipo: dict[str, int | None] | None = None,
+        modalidad: str | None = None, cuota_equipo: int | None = None,
     ) -> None:
-        """`None` en posiciones, tarifas o modalidad = usar lo de la liga. Las cuotas van con las tarifas."""
+        """`None` en posiciones, tarifas, modalidad o cuota_equipo = usar lo de la liga."""
         if modalidad is not None and modalidad not in MODALIDADES:
             raise ErrorValidacion("Tipo de partido inválido.")
         if posiciones is not None and not posiciones_a_csv(posiciones):
             raise ErrorValidacion("Marca al menos una posición por defecto.")
-        _validar_montos(tarifas or {}, cuotas_equipo)
+        _validar_montos([*(tarifas or {}).values(), cuota_equipo or 0])
         with self.db.sesion() as s:
             categoria = s.get(Categoria, categoria_id)
             if not categoria:
@@ -328,14 +344,11 @@ class LigaService:
                 raise ErrorValidacion(_texto_no_permitidas(sobran, efectiva))
             categoria.posiciones_defecto = posiciones_a_csv(posiciones) if posiciones is not None else None
             categoria.modalidad = modalidad
+            categoria.cuota_equipo_centavos = cuota_equipo
             s.execute(delete(TarifaCategoria).where(TarifaCategoria.categoria_id == categoria_id))
-            if tarifas is not None:
-                cuotas = cuotas_equipo or {}
-                for posicion in POSICIONES:
-                    if posicion in tarifas or cuotas.get(posicion) is not None:
-                        s.add(TarifaCategoria(categoria_id=categoria_id, posicion=posicion,
-                                              monto_centavos=tarifas.get(posicion, 0),
-                                              cuota_equipo_centavos=cuotas.get(posicion)))
+            for posicion, monto in (tarifas or {}).items():
+                if posicion in POSICIONES:
+                    s.add(TarifaCategoria(categoria_id=categoria_id, posicion=posicion, monto_centavos=monto))
 
     def posiciones_para(self, liga: Liga, categoria: Categoria | None) -> list[str]:
         """Posiciones por defecto de un partido nuevo: las de la categoría si tiene, si no las de la liga."""
@@ -353,15 +366,6 @@ class LigaService:
             if propias is not None:
                 return propias.get(posicion, 0)
         return self.tarifas(liga_id, modalidad).get(posicion, 0)
-
-    def cuota_equipo_para(self, liga_id: int, categoria_id: int | None, posicion: str,
-                          modalidad: str | None = None) -> int | None:
-        """Lo que paga cada equipo por `posicion` (mismo orden que `tarifa_para`); None = no establecido."""
-        if categoria_id is not None:
-            propias = self.cuotas_equipo_categoria(categoria_id)
-            if propias is not None:
-                return propias.get(posicion)
-        return self.cuotas_equipo(liga_id, modalidad).get(posicion)
 
     @staticmethod
     def _validar(s, datos: DatosLiga, excluir_id: int | None = None) -> str:
@@ -388,6 +392,6 @@ class LigaService:
         return nombre
 
 
-def _validar_montos(tarifas: dict[str, int], cuotas_equipo: dict[str, int | None] | None) -> None:
-    if any(v < 0 for v in tarifas.values()) or any(v is not None and v < 0 for v in (cuotas_equipo or {}).values()):
-        raise ErrorValidacion("Las tarifas no pueden ser negativas.")
+def _validar_montos(montos) -> None:
+    if any(v < 0 for v in montos):
+        raise ErrorValidacion("Los montos no pueden ser negativos.")

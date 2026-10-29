@@ -91,6 +91,7 @@ def app(db, rutas):
     oro = a.ligas.categorias.crear(premier.id, "Oro")
     a.ligas.categorias.crear(premier.id, "Plata")
     a.ligas.configurar_categoria(oro.id, ["central", "asistente_1"], {"central": 40000})
+    a.ligas.configurar_cuota_equipo(premier.id, "futbol_11", 45000)
     a.ligas.equipos.crear_varios(premier.id, "Leones\nHalcones", categoria_id=oro.id)
     campo_p = a.ligas.campos.crear(premier.id, "Unidad Deportiva")
     eqp = {e.nombre: e.id for e in a.ligas.equipos.listar(premier.id)}
@@ -260,6 +261,13 @@ def test_pagos_cedulas_reportes(app, tmp_path):
     pe._recibo(l)
     pe._deshacer(app.cobros.lineas()[0])
     pe._todos_completo([x.clave for x in app.cobros.lineas()])
+    # Pagos adelantados: diálogo, tabla y borrar
+    pe._dialogo_abono()
+    abono = app.cobros.registrar_abono(l.equipo.id, 100000, nota="De la temporada pasada")
+    pe.refrescar()
+    pe._borrar_abono(abono)
+    app.cobros.registrar_abono(l.rival.id, 20000)
+    pe._dialogo_registrar(next(x for x in app.cobros.lineas() if x.abonado))
     app.cobros.registrar(l.partido.id, l.equipo.id, 100, forma_pago="efectivo", nota="Parcial")
     pe.refrescar()
     app.usuario = SimpleNamespace(nombre="Consulta", es_admin=False, rol=ROL_CONSULTA)
@@ -329,10 +337,10 @@ def test_tarifas_por_tipo_de_partido(app):
     liga = next(r.liga for r in app.ligas.listar() if r.liga.nombre == "Liga Sabatina")
     panel = ligas.PanelTarifas(app, liga).construir()
     campos = [c for c in _controles(panel, ft.TextField)]
-    assert len(campos) == 2 * (4 + 2 + 3)  # árbitro y equipo por posición de cada tipo
+    assert len(campos) == 3 + 4 + 2 + 3  # arbitraje por equipo de cada tipo + pago al árbitro por posición
     for c in campos:
         c.value = "300"
     boton = next(b for b in _controles(panel, ft.FilledButton) if b.content == "Guardar")
     boton.on_click(None)
-    assert app.ligas.cuotas_equipo(liga.id, "futbol_7")["central"] == 30000
+    assert app.ligas.cuota_equipo(liga.id, "futbol_7") == 30000
     assert app.ligas.tarifas(liga.id)["central"] == 30000

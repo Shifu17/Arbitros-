@@ -6,7 +6,7 @@ from pathlib import Path
 
 import flet as ft
 
-from arbitros.db.models import FORMAS_PAGO, POSICIONES
+from arbitros.db.models import FORMAS_PAGO
 from arbitros.services.cobros import LineaCobro, ReciboEquipo
 from arbitros.services.dinero import a_centavos, formatear_monto, monto_editable
 from arbitros.services.errores import ErrorValidacion
@@ -32,8 +32,9 @@ SIN_FORMA = "ninguna"
 
 def etiqueta_cobro(l: LineaCobro) -> ft.Control:
     if l.saldo == 0:
-        texto, fondo, color = "Pagado", tema.EXITO_FONDO, tema.EXITO_TEXTO
-    elif l.pagado:
+        texto = "Pagado por adelantado" if l.abonado and not l.pagado else "Pagado"
+        fondo, color = tema.EXITO_FONDO, tema.EXITO_TEXTO
+    elif l.pagado_total:
         texto, fondo, color = "Pago parcial", tema.AVISO_FONDO, tema.AVISO_TEXTO
     elif not l.jugado:
         texto, fondo, color = "Por jugarse", ft.Colors.SURFACE_CONTAINER_HIGHEST, ft.Colors.ON_SURFACE_VARIANT
@@ -153,33 +154,147 @@ class PanelEquipos:
         if self.jornada_id is None:
             self.contenido.controls = [estado_vacio(ft.Icons.CALENDAR_MONTH, "Esta liga aún no tiene jornadas")]
         else:
-            lineas = self.app.cobros.lineas(jornada_id=self.jornada_id)
-            if not lineas:
-                self.contenido.controls = [estado_vacio(
-                    ft.Icons.GROUPS, "No hay arbitrajes que cobrar en esta jornada",
-                    "Revisa que la liga tenga tarifas y que haya partidos programados.")]
-            else:
-                pendientes = [l for l in lineas if l.saldo]
-                ayuda = ft.Text("Cada equipo paga el monto establecido para el tipo de partido en «Ligas → Posiciones "
-                                "y tarifas» (si no hay, la mitad de la tarifa del árbitro). Si un equipo pagó "
-                                "distinto, corrige su cuota en «Registrar pago…».",
-                                color=ft.Colors.ON_SURFACE_VARIANT)
-                acciones = []
-                if self.app.es_admin and pendientes:
-                    acciones.append(ft.OutlinedButton(
-                        "Todos pagaron completo", icon=ft.Icons.DONE_ALL,
-                        on_click=lambda _: self._todos_completo([l.clave for l in pendientes])))
-                resumen = ft.Text(
-                    f"Arbitrajes {formatear_monto(sum(l.cuota for l in lineas))} · pagado "
-                    f"{formatear_monto(sum(l.pagado for l in lineas))} · deben "
-                    f"{formatear_monto(sum(l.saldo for l in lineas))}",
-                    weight=ft.FontWeight.W_600)
-                self.contenido.controls = [
-                    ayuda, ft.Row([resumen, *acciones], wrap=True, spacing=16),
-                    tarjeta(ft.Row([self._tabla(lineas)], scroll=ft.ScrollMode.AUTO)),
-                ]
+            self._refrescar_jornada()
+        self.contenido.controls += self._abonos()
         if actualizar:
             self.page.update()
+
+    def _refrescar_jornada(self) -> None:
+        lineas = self.app.cobros.lineas(jornada_id=self.jornada_id)
+        if not lineas:
+            self.contenido.controls = [estado_vacio(
+                ft.Icons.GROUPS, "No hay arbitrajes que cobrar en esta jornada",
+                "Revisa que la liga tenga el arbitraje por equipo en «Posiciones y tarifas».")]
+        else:
+            pendientes = [l for l in lineas if l.saldo]
+            ayuda = ft.Text("Cada equipo paga el arbitraje por partido establecido en «Ligas → Posiciones y "
+                            "tarifas». Si un equipo pagó distinto, corrige su arbitraje en «Registrar pago…».",
+                            color=ft.Colors.ON_SURFACE_VARIANT)
+            acciones = []
+            if self.app.es_admin and pendientes:
+                acciones.append(ft.OutlinedButton(
+                    "Todos pagaron completo", icon=ft.Icons.DONE_ALL,
+                    on_click=lambda _: self._todos_completo([l.clave for l in pendientes])))
+            resumen = ft.Text(
+                f"Arbitrajes {formatear_monto(sum(l.cuota for l in lineas))} · pagado "
+                f"{formatear_monto(sum(l.pagado_total for l in lineas))} · deben "
+                f"{formatear_monto(sum(l.saldo for l in lineas))}",
+                weight=ft.FontWeight.W_600)
+            self.contenido.controls = [
+                ayuda, ft.Row([resumen, *acciones], wrap=True, spacing=16),
+                tarjeta(ft.Row([self._tabla(lineas)], scroll=ft.ScrollMode.AUTO)),
+            ]
+
+    # --- Pagos adelantados ---------------------------------------------------
+
+    def _abonos(self) -> list[ft.Control]:
+        """Dinero que los equipos de la liga dejaron por adelantado (o de antes de usar la app)."""
+        abonos = self.app.cobros.abonos(liga_id=self.liga.id)
+        titulo = [ft.Text("Pagos adelantados", size=18, weight=ft.FontWeight.W_600)]
+        if self.app.es_admin:
+            titulo.append(ft.OutlinedButton("Registrar pago adelantado…", icon=ft.Icons.SAVINGS,
+                                            on_click=lambda _: self._dialogo_abono()))
+        controles = [
+            ft.Row(titulo, wrap=True, spacing=16),
+            ft.Text("Si un equipo ya había pagado desde antes, regístralo aquí: se va aplicando solo a sus "
+                    "partidos por fecha y lo que sobra queda como saldo a favor.",
+                    color=ft.Colors.ON_SURFACE_VARIANT),
+        ]
+        if not abonos:
+            return controles
+        a_favor = {r.equipo.id: r.a_favor for r in self.app.cobros.resumen_por_equipo(liga_id=self.liga.id)}
+        filas = []
+        for a in abonos:
+            acciones = []
+            if self.app.es_admin:
+                acciones.append(ft.IconButton(ft.Icons.DELETE_OUTLINE, tooltip="Borrar este pago adelantado",
+                                              on_click=lambda _, a=a: self._borrar_abono(a)))
+            favor = a_favor.get(a.equipo_id, 0)
+            filas.append(ft.DataRow(cells=[
+                ft.DataCell(ft.Text(a.fecha.strftime("%d/%m/%Y"))),
+                ft.DataCell(ft.Column(
+                    [ft.Text(a.equipo.nombre, weight=ft.FontWeight.W_500),
+                     ft.Text(" · ".join(x for x in (FORMAS_PAGO.get(a.forma_pago) if a.forma_pago else None, a.nota)
+                                        if x) or "—", size=12, color=ft.Colors.ON_SURFACE_VARIANT)],
+                    spacing=0, alignment=ft.MainAxisAlignment.CENTER)),
+                ft.DataCell(ft.Text(formatear_monto(a.monto_centavos), weight=ft.FontWeight.BOLD)),
+                ft.DataCell(ft.Text(formatear_monto(favor), color=tema.EXITO_TEXTO if favor else None)),
+                ft.DataCell(ft.Row(acciones, spacing=0, tight=True)),
+            ]))
+        controles.append(tarjeta(ft.Row([ft.DataTable(
+            columns=[ft.DataColumn(ft.Text(c), numeric=n) for c, n in (
+                ("Fecha", False), ("Equipo", False), ("Monto", True), ("A favor del equipo", True), ("", False))],
+            rows=filas, heading_row_color=ft.Colors.SURFACE_CONTAINER_HIGHEST, column_spacing=16,
+            data_row_max_height=60,
+        )], scroll=ft.ScrollMode.AUTO)))
+        return controles
+
+    def _dialogo_abono(self) -> None:
+        equipos = self.app.ligas.equipos.listar(self.liga.id, solo_activos=True)
+        if not equipos:
+            avisar(self.page, "Esta liga no tiene equipos.", error=True)
+            return
+        equipo = ft.Dropdown(label="Equipo", width=300,
+                             options=[ft.DropdownOption(key=str(e.id), text=e.nombre) for e in equipos])
+        monto = ft.TextField(label="Monto", prefix=ft.Text("$ "), input_filter=filtros.MONTO, width=200,
+                             text_align=ft.TextAlign.RIGHT)
+        fecha = CampoFecha(self.page, "Fecha en que pagó", date.today(), width=200)
+        forma = ft.Dropdown(
+            label="Forma de pago", value=SIN_FORMA, width=260,
+            options=[ft.DropdownOption(key=SIN_FORMA, text="Sin especificar")]
+            + [ft.DropdownOption(key=k, text=v) for k, v in FORMAS_PAGO.items()],
+        )
+        nota = ft.TextField(label="Nota (opcional)", hint_text="Ej.: pagó la inscripción con 5 arbitrajes")
+
+        def guardar(_):
+            equipo.error_text = None if equipo.value else "Elige un equipo"
+            try:
+                centavos = a_centavos(monto.value or "")
+                monto.error = None
+            except ValueError:
+                centavos, monto.error = None, "Monto no válido"
+            if not equipo.value or centavos is None or not fecha.validar():
+                self.page.update()
+                return
+            try:
+                self.app.cobros.registrar_abono(int(equipo.value), centavos, fecha.valor,
+                                                None if forma.value == SIN_FORMA else forma.value, nota.value or "")
+            except ErrorValidacion as e:
+                mostrar_errores({"monto": monto}, e.campos)
+                avisar(self.page, e.mensaje, error=True)
+                self.page.update()
+                return
+            self.page.pop_dialog()
+            avisar(self.page, f"Pago adelantado de {formatear_monto(centavos)} registrado.")
+            self.refrescar()
+
+        self.page.show_dialog(ft.AlertDialog(
+            modal=True,
+            title=ft.Text("Pago adelantado de un equipo"),
+            content=ft.Column(
+                [ft.Text("Se aplica solo a lo que el equipo debe, partido por partido en orden de fecha.",
+                         color=ft.Colors.ON_SURFACE_VARIANT),
+                 ft.Row([equipo, monto], spacing=12, wrap=True),
+                 ft.Row([fecha.campo, forma], spacing=12, wrap=True),
+                 nota],
+                tight=True, spacing=12, width=ANCHO_DIALOGO + 80,
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda _: self.page.pop_dialog()),
+                ft.FilledButton("Guardar", icon=ft.Icons.SAVE, on_click=guardar),
+            ],
+        ))
+
+    def _borrar_abono(self, abono) -> None:
+        def aplicar():
+            self.app.cobros.eliminar_abono(abono.id)
+            avisar(self.page, "Pago adelantado borrado.")
+            self.refrescar()
+
+        confirmar(self.page, "Borrar pago adelantado",
+                  f"Se borrará el pago adelantado de {formatear_monto(abono.monto_centavos)} de {abono.equipo.nombre} "
+                  f"del {abono.fecha:%d/%m/%Y}; los partidos que cubría volverán a quedar pendientes.",
+                  aplicar, "Borrar")
 
     def _tabla(self, lineas: list[LineaCobro]) -> ft.Control:
         filas = []
@@ -203,17 +318,16 @@ class PanelEquipos:
                      ft.Text(f"vs {l.rival.nombre} · {'Local' if l.es_local else 'Visitante'}", size=12,
                              color=ft.Colors.ON_SURFACE_VARIANT)],
                     spacing=0, alignment=ft.MainAxisAlignment.CENTER)),
-                ft.DataCell(ft.Text(formatear_monto(l.cuota),
-                                    tooltip=" · ".join(f"{POSICIONES[pos]} {formatear_monto(m)}"
-                                                       for pos, m in l.desglose) or None)),
-                ft.DataCell(ft.Text(formatear_monto(l.pagado))),
+                ft.DataCell(ft.Text(formatear_monto(l.cuota))),
+                ft.DataCell(ft.Text(formatear_monto(l.pagado_total),
+                                    tooltip=f"{formatear_monto(l.abonado)} con pago adelantado" if l.abonado else None)),
                 ft.DataCell(ft.Text(formatear_monto(l.saldo), weight=ft.FontWeight.BOLD)),
                 ft.DataCell(etiqueta_cobro(l)),
                 ft.DataCell(ft.Row(acciones, spacing=0, tight=True)),
             ]))
         return ft.DataTable(
             columns=[ft.DataColumn(ft.Text(c), numeric=n) for c, n in (
-                ("Fecha", False), ("Equipo", False), ("Cuota", True), ("Pagado", True), ("Debe", True),
+                ("Fecha", False), ("Equipo", False), ("Arbitraje", True), ("Pagado", True), ("Debe", True),
                 ("Estado", False), ("", False))],
             rows=filas, heading_row_color=ft.Colors.SURFACE_CONTAINER_HIGHEST, column_spacing=16, data_row_max_height=60,
         )
@@ -246,9 +360,9 @@ class PanelEquipos:
                   aplicar, "Deshacer")
 
     def _dialogo_registrar(self, l: LineaCobro) -> None:
-        cuota = ft.TextField(label="Cuota del equipo", value=monto_editable(l.cuota), prefix=ft.Text("$ "),
+        cuota = ft.TextField(label="Arbitraje del equipo", value=monto_editable(l.cuota), prefix=ft.Text("$ "),
                              input_filter=filtros.MONTO, width=200, text_align=ft.TextAlign.RIGHT)
-        pagado = ft.TextField(label="Pagó", value=monto_editable(l.pagado or l.cuota), prefix=ft.Text("$ "),
+        pagado = ft.TextField(label="Pagó", value=monto_editable(l.pagado or (l.cuota - l.abonado)), prefix=ft.Text("$ "),
                               input_filter=filtros.MONTO, width=200, text_align=ft.TextAlign.RIGHT)
         fecha = CampoFecha(self.page, "Fecha del pago", l.fecha_pago or date.today(), width=200)
         forma = ft.Dropdown(
@@ -257,7 +371,6 @@ class PanelEquipos:
             + [ft.DropdownOption(key=k, text=v) for k, v in FORMAS_PAGO.items()],
         )
         nota = ft.TextField(label="Nota (opcional)", value=l.nota or "", hint_text="Ej.: pagó el delegado")
-        desglose = " · ".join(f"{POSICIONES[pos]} {formatear_monto(m)}" for pos, m in l.desglose) or "Sin tarifas"
         p = l.partido
 
         def guardar(_):
@@ -288,7 +401,8 @@ class PanelEquipos:
             content=ft.Column(
                 [ft.Text(f"{fecha_corta(p.fecha)} {p.hora:%H:%M} · vs {l.rival.nombre} · {l.jornada}",
                          weight=ft.FontWeight.W_500),
-                 ft.Text(f"Le toca: {desglose}", color=ft.Colors.ON_SURFACE_VARIANT),
+                 *([ft.Text(f"{formatear_monto(l.abonado)} ya están cubiertos con un pago adelantado.",
+                            color=tema.EXITO_TEXTO)] if l.abonado else []),
                  ft.Row([cuota, pagado], spacing=12, wrap=True),
                  ft.Row([fecha.campo, forma], spacing=12, wrap=True),
                  nota],

@@ -94,10 +94,10 @@ class ReporteService:
 
         hoja = libro.create_sheet("Pagos de equipos")
         filas = [[r.liga.nombre, r.equipo.nombre, r.partidos, _p(r.total), _p(r.pagado), _p(r.pendiente),
-                  _p(r.por_jugar)]
+                  _p(r.por_jugar), _p(r.a_favor)]
                  for r in self.cobros.resumen_por_equipo(desde, hasta, liga_id)]
-        _tabla(hoja, periodo, ["Liga", "Equipo", "Partidos", "Arbitrajes", "Pagado", "Debe", "Por jugarse"], filas,
-               moneda={4, 5, 6, 7})
+        _tabla(hoja, periodo, ["Liga", "Equipo", "Partidos", "Arbitrajes", "Pagado", "Debe", "Por jugarse",
+                                "Saldo a favor"], filas, moneda={4, 5, 6, 7, 8})
 
         hoja = libro.create_sheet("Detalle de equipos")
         filas = []
@@ -105,12 +105,19 @@ class ReporteService:
             p = l.partido
             filas.append([p.fecha, f"{p.hora:%H:%M}", l.liga.nombre, l.jornada,
                           p.categoria.nombre if p.categoria else "", l.equipo.nombre, l.rival.nombre,
-                          ", ".join(f"{POSICIONES[pos]} {m / 100:,.2f}" for pos, m in l.desglose),
-                          _p(l.cuota), _p(l.pagado), _p(l.saldo), l.fecha_pago or "",
+                          _p(l.cuota), _p(l.pagado), _p(l.abonado), _p(l.saldo), l.fecha_pago or "",
                           FORMAS_PAGO.get(l.forma_pago, "") if l.forma_pago else "", l.nota or ""])
-        _tabla(hoja, periodo, ["Fecha", "Hora", "Liga", "Jornada", "Categoría", "Equipo", "Rival", "Desglose",
-                                "Cuota", "Pagado", "Saldo", "Fecha de pago", "Forma de pago", "Nota"],
-               filas, moneda={9, 10, 11}, fechas={1, 12})
+        _tabla(hoja, periodo, ["Fecha", "Hora", "Liga", "Jornada", "Categoría", "Equipo", "Rival",
+                                "Arbitraje", "Pagado", "Pago adelantado", "Saldo", "Fecha de pago", "Forma de pago",
+                                "Nota"],
+               filas, moneda={8, 9, 10, 11}, fechas={1, 12})
+
+        hoja = libro.create_sheet("Pagos adelantados")
+        filas = [[a.fecha, a.equipo.nombre, _p(a.monto_centavos), FORMAS_PAGO.get(a.forma_pago, "") if a.forma_pago else "",
+                  a.nota or ""]
+                 for a in self.cobros.abonos(liga_id=liga_id)
+                 if (not desde or a.fecha >= desde) and (not hasta or a.fecha <= hasta)]
+        _tabla(hoja, periodo, ["Fecha", "Equipo", "Monto", "Forma de pago", "Nota"], filas, moneda={3}, fechas={1})
 
         hoja = libro.create_sheet("Cédulas")
         filas = [[c.partido.fecha, f"{c.partido.hora:%H:%M}", c.liga.nombre, c.jornada,
