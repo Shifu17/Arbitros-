@@ -86,3 +86,27 @@ def test_ddl_es_transaccional(tmp_path):
     with db.engine.connect() as con:
         assert con.exec_driver_sql("SELECT count(*) FROM sqlite_master WHERE name='x'").scalar() == 0
     db.cerrar()
+
+
+def test_tarifas_existentes_quedan_en_el_tipo_principal(tmp_path):
+    ruta = tmp_path / "t.db"
+    db = Database.desde_archivo(ruta)
+    command.upgrade(configuracion_alembic(db), "0009")
+    db.cerrar()
+    con = sqlite3.connect(ruta)
+    con.executescript("""
+        INSERT INTO ligas (id, nombre, tipo, modalidad, posiciones_defecto, activa)
+            VALUES (1, 'Siete', 'liga', 'futbol_7', 'central', 1), (2, 'Once', 'liga', 'futbol_11', 'central', 1);
+        INSERT INTO tarifas (liga_id, posicion, monto_centavos) VALUES (1, 'central', 25000), (2, 'central', 40000);
+    """)
+    con.commit()
+    con.close()
+    from arbitros.services.ligas import LigaService
+
+    db = Database.desde_archivo(ruta)
+    migrar(db)
+    ligas = LigaService(db)
+    assert ligas.tiene_tarifas_propias(1, "futbol_7") and not ligas.tiene_tarifas_propias(1, "futbol_11")
+    assert ligas.tarifas(1)["central"] == 25000 and ligas.tarifas(2, "bardas")["central"] == 40000
+    assert ligas.cuotas_equipo(2)["central"] is None
+    db.cerrar()

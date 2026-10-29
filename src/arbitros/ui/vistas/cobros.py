@@ -160,8 +160,9 @@ class PanelEquipos:
                     "Revisa que la liga tenga tarifas y que haya partidos programados.")]
             else:
                 pendientes = [l for l in lineas if l.saldo]
-                ayuda = ft.Text("Cada equipo paga la mitad del arbitraje de su partido. Si un equipo pagó distinto "
-                                "(p. ej. todo el arbitraje), corrige su cuota en «Registrar pago…».",
+                ayuda = ft.Text("Cada equipo paga el monto establecido para el tipo de partido en «Ligas → Posiciones "
+                                "y tarifas» (si no hay, la mitad de la tarifa del árbitro). Si un equipo pagó "
+                                "distinto, corrige su cuota en «Registrar pago…».",
                                 color=ft.Colors.ON_SURFACE_VARIANT)
                 acciones = []
                 if self.app.es_admin and pendientes:

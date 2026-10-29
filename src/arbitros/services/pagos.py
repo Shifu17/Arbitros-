@@ -2,7 +2,7 @@
 
 Por cada asignación:  saldo = tarifa − pagado en campo − pagado después.
 
-- La tarifa sale de la liga/categoría y posición (`LigaService.tarifa_para`) mientras no se
+- La tarifa sale de la liga/categoría, tipo de partido y posición (`LigaService.tarifa_para`) mientras no se
   haya registrado dinero; en cuanto se registra algo se congela en `Asignacion.tarifa_centavos`
   para que cambiar las tarifas de la liga no altere cuentas ya hechas.
 - Los partidos cancelados o suspendidos valen 0, salvo que se le ponga una tarifa a mano
@@ -96,7 +96,7 @@ class PagoService:
                 if a.tarifa_centavos is not None:
                     tarifa = a.tarifa_centavos
                 elif p.se_juega:
-                    clave = (liga.id, p.categoria_id, a.posicion)
+                    clave = (liga.id, p.categoria_id, a.posicion, p.modalidad)
                     if clave not in tarifas:
                         tarifas[clave] = self.ligas.tarifa_para(*clave)
                     tarifa = tarifas[clave]

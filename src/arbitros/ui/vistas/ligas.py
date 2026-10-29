@@ -736,6 +736,10 @@ class PanelCategorias(PanelCatalogo):
         tarifas = self.app.ligas.tarifas_categoria(item.id)
         if tarifas:
             partes.append("Tarifas: " + ", ".join(f"{POSICIONES[p]} {formatear_monto(v)}" for p, v in tarifas.items() if v))
+            cuotas = self.app.ligas.cuotas_equipo_categoria(item.id) or {}
+            if any(v is not None for v in cuotas.values()):
+                partes.append("Cada equipo paga: " + ", ".join(
+                    f"{POSICIONES[p]} {formatear_monto(v)}" for p, v in cuotas.items() if v is not None))
         else:
             partes.append("Tarifas de la liga")
         return " · ".join(partes)
@@ -747,8 +751,11 @@ class PanelCategorias(PanelCatalogo):
                               on_click=lambda _, i=item: self._configurar(i))]
 
     def _configurar(self, categoria) -> None:
-        tarifas_liga = self.app.ligas.tarifas(self.liga.id)
+        tipo = categoria.modalidad or self.liga.modalidad
+        tarifas_liga = self.app.ligas.tarifas(self.liga.id, tipo)
         propias = self.app.ligas.tarifas_categoria(categoria.id)
+        cuotas_base = (self.app.ligas.cuotas_equipo_categoria(categoria.id) if propias is not None
+                       else self.app.ligas.cuotas_equipo(self.liga.id, tipo))
         usar_pos_liga = ft.Switch(label="Usar las posiciones de la liga", value=categoria.lista_posiciones is None)
         posiciones, casillas, error_pos = selector_posiciones(categoria.lista_posiciones or self.liga.lista_posiciones,
                                                               categoria.modalidad or self.liga.modalidad)
@@ -761,13 +768,26 @@ class PanelCategorias(PanelCatalogo):
             )
             for p, nombre in POSICIONES.items()
         }
-        bloque_montos = ft.Row(list(montos.values()), wrap=True, spacing=8, run_spacing=8)
+        cuotas = {
+            p: ft.TextField(
+                label=nombre, prefix=ft.Text("$ "), width=150, dense=True, text_align=ft.TextAlign.RIGHT,
+                input_filter=filtros.MONTO, max_length=9, counter="", hint_text="Mitad",
+                value=monto_editable(cuotas_base[p]) if cuotas_base[p] is not None else "",
+            )
+            for p, nombre in POSICIONES.items()
+        }
+        bloque_montos = ft.Column([
+            ft.Text("Pago al árbitro", weight=ft.FontWeight.W_500),
+            ft.Row(list(montos.values()), wrap=True, spacing=8, run_spacing=8),
+            ft.Text("Paga cada equipo (vacío = la mitad de la tarifa)", weight=ft.FontWeight.W_500),
+            ft.Row(list(cuotas.values()), wrap=True, spacing=8, run_spacing=8),
+        ], spacing=8)
 
         def mostrar_montos(tipo: str | None) -> None:
             # Solo las tarifas de los árbitros que lleva ese tipo de partido
             permitidas = set(posiciones_permitidas(tipo or self.liga.modalidad))
-            for p, campo in montos.items():
-                campo.visible = p in permitidas
+            for p in POSICIONES:
+                montos[p].visible = cuotas[p].visible = p in permitidas
 
         mostrar_montos(categoria.modalidad)
 
@@ -791,15 +811,23 @@ class PanelCategorias(PanelCatalogo):
         bloque_montos.disabled = usar_tarifas_liga.value
 
         def guardar(_):
-            tarifas = None
+            tarifas = cuotas_equipo = None
             if not usar_tarifas_liga.value:
-                tarifas, malos = {}, False
-                for p, campo in montos.items():
+                tarifas, cuotas_equipo, malos = {}, {}, False
+                for p in POSICIONES:
+                    if not montos[p].visible:
+                        continue
                     try:
-                        tarifas[p] = a_centavos(campo.value or "")
-                        campo.error = None
+                        tarifas[p] = a_centavos(montos[p].value or "")
+                        montos[p].error = None
                     except ValueError:
-                        campo.error = "No válido"
+                        montos[p].error = "No válido"
+                        malos = True
+                    try:
+                        cuotas_equipo[p] = a_centavos(cuotas[p].value) if (cuotas[p].value or "").strip() else None
+                        cuotas[p].error = None
+                    except ValueError:
+                        cuotas[p].error = "No válido"
                         malos = True
                 if malos:
                     self.page.update()
@@ -807,7 +835,7 @@ class PanelCategorias(PanelCatalogo):
             try:
                 self.app.ligas.configurar_categoria(
                     categoria.id, None if usar_pos_liga.value else posiciones_marcadas(casillas), tarifas,
-                    modalidad=None if modalidad.value == HEREDAR else modalidad.value,
+                    modalidad=None if modalidad.value == HEREDAR else modalidad.value, cuotas_equipo=cuotas_equipo,
                 )
             except ErrorValidacion as e:
                 error_pos.value, error_pos.visible = e.mensaje, True
@@ -836,7 +864,8 @@ class PanelCategorias(PanelCatalogo):
 
 
 class PanelTarifas:
-    """Posiciones por defecto y pago por partido de cada posición."""
+    """Tipo principal, posiciones por defecto y, por cada tipo de partido, el pago al árbitro y lo que
+    paga cada equipo por posición."""
 
     def __init__(self, app, liga: Liga):
         self.app = app
@@ -844,30 +873,13 @@ class PanelTarifas:
         self.liga = liga
 
     def construir(self) -> ft.Control:
-        tarifas = self.app.ligas.tarifas(self.liga.id)
         marcadas = self.liga.lista_posiciones
         editable = self.app.es_admin
-        filas, casillas, montos = [], {}, {}
+        filas, casillas = [], {}
         for clave, nombre in POSICIONES.items():
             casillas[clave] = ft.Checkbox(value=clave in marcadas, disabled=not editable)
-            montos[clave] = ft.TextField(
-                value=monto_editable(tarifas[clave]) if tarifas[clave] else "",
-                prefix=ft.Text("$ "),
-                input_filter=filtros.MONTO,
-                hint_text="0",
-                width=160,
-                dense=True,
-                text_align=ft.TextAlign.RIGHT,
-                keyboard_type=ft.KeyboardType.NUMBER,
-                read_only=not editable,
-            )
-            fila = ft.DataRow(
-                cells=[
-                    ft.DataCell(ft.Text(nombre, weight=ft.FontWeight.W_500)),
-                    ft.DataCell(casillas[clave]),
-                    ft.DataCell(montos[clave]),
-                ]
-            )
+            fila = ft.DataRow(cells=[ft.DataCell(ft.Text(nombre, weight=ft.FontWeight.W_500)),
+                                     ft.DataCell(casillas[clave])])
             # Se oculta el renglón completo: una celda con su casilla oculta rompe la tabla
             casillas[clave].data = fila
             filas.append(fila)
@@ -875,50 +887,94 @@ class PanelTarifas:
         modalidad = selector_modalidad(self.liga.modalidad, casillas, self.page, width=320, disabled=not editable)
         mostrar_posiciones_de(casillas, self.liga.modalidad, marcar_defecto=False)
 
-        def guardar(_):
-            valores, errores = {}, False
-            for clave, campo in montos.items():
+        def campo_monto(valor: int | None, pista: str) -> ft.TextField:
+            return ft.TextField(
+                value=monto_editable(valor) if valor else "", prefix=ft.Text("$ "), input_filter=filtros.MONTO,
+                hint_text=pista, width=150, dense=True, text_align=ft.TextAlign.RIGHT,
+                keyboard_type=ft.KeyboardType.NUMBER, read_only=not editable,
+            )
+
+        # {tipo: {posición: (pago al árbitro, paga cada equipo)}}
+        montos: dict[str, dict[str, tuple[ft.TextField, ft.TextField]]] = {}
+        tarjetas_tipo = []
+        for tipo, (nombre_tipo, _, permitidas) in MODALIDADES.items():
+            propios = tipo == self.liga.modalidad or self.app.ligas.tiene_tarifas_propias(self.liga.id, tipo)
+            tarifas = self.app.ligas.tarifas(self.liga.id, tipo) if propios else {}
+            cuotas = self.app.ligas.cuotas_equipo(self.liga.id, tipo) if propios else {}
+            montos[tipo] = {p: (campo_monto(tarifas.get(p), "0"), campo_monto(cuotas.get(p), "Mitad"))
+                            for p in permitidas}
+            ayuda = ("Tipo principal de la liga." if tipo == self.liga.modalidad else
+                     f"Si lo dejas vacío usa los montos de {nombre_modalidad(self.liga.modalidad)}.")
+            tarjetas_tipo.append(tarjeta(ft.Container(ft.Column([
+                ft.Text(nombre_tipo, size=16, weight=ft.FontWeight.W_600),
+                ft.Text(ayuda, size=12, color=ft.Colors.ON_SURFACE_VARIANT),
+                ft.DataTable(
+                    columns=[ft.DataColumn(ft.Text("Posición")), ft.DataColumn(ft.Text("Pago al árbitro")),
+                             ft.DataColumn(ft.Text("Paga cada equipo"))],
+                    rows=[ft.DataRow(cells=[ft.DataCell(ft.Text(POSICIONES[p], weight=ft.FontWeight.W_500)),
+                                            ft.DataCell(arb), ft.DataCell(eq)])
+                          for p, (arb, eq) in montos[tipo].items()],
+                    column_spacing=24,
+                ),
+            ], spacing=4), padding=ft.Padding.only(left=16, top=12, right=16, bottom=4))))
+
+        def leer(tipo: str) -> tuple[dict[str, int], dict[str, int | None]] | None:
+            tarifas, cuotas, malos = {}, {}, False
+            for p, (arb, eq) in montos[tipo].items():
                 try:
-                    valores[clave] = a_centavos(campo.value or "")
-                    campo.error = None
+                    tarifas[p] = a_centavos(arb.value or "")
+                    arb.error = None
                 except ValueError:
-                    campo.error = "Monto no válido"
-                    errores = True
-            if errores:
+                    arb.error, malos = "No válido", True
+                try:
+                    cuotas[p] = a_centavos(eq.value) if (eq.value or "").strip() else None
+                    eq.error = None
+                except ValueError:
+                    eq.error, malos = "No válido", True
+            return None if malos else (tarifas, cuotas)
+
+        def guardar(_):
+            leidos = {tipo: leer(tipo) for tipo in montos}
+            if any(v is None for v in leidos.values()):
                 self.page.update()
                 return
+            principal = modalidad.value
             try:
                 self.app.ligas.configurar_posiciones_y_tarifas(
-                    self.liga.id, [c for c, chk in casillas.items() if chk.value], valores, modalidad=modalidad.value
+                    self.liga.id, [c for c, chk in casillas.items() if chk.value], leidos[principal][0],
+                    modalidad=principal, cuotas_equipo=leidos[principal][1],
                 )
+                for tipo, (tarifas, cuotas) in leidos.items():
+                    if tipo != principal:
+                        self.app.ligas.configurar_tarifas_tipo(self.liga.id, tipo, tarifas, cuotas)
             except ErrorValidacion as e:
                 error.value, error.visible = e.mensaje, True
                 self.page.update()
                 return
             error.visible = False
             self.liga.posiciones_defecto = ",".join(c for c, chk in casillas.items() if chk.value)
-            self.liga.modalidad = modalidad.value
-            resumen = ", ".join(f"{POSICIONES[c]} {formatear_monto(v)}" for c, v in valores.items() if v)
-            avisar(self.page, "Guardado." + (f" Tarifas: {resumen}" if resumen else ""))
+            self.liga.modalidad = principal
+            avisar(self.page, "Posiciones y tarifas guardadas.")
 
         controles = [
             ft.Text(
-                "Elige el tipo de partido y marca las posiciones que lleva un partido normal de esta liga. "
-                "Al crear cada partido se precargan y ahí puedes cambiarlas. La tarifa es lo que se le paga "
-                "al árbitro por partido.",
+                "Elige el tipo de partido principal y marca las posiciones que lleva un partido normal de esta "
+                "liga. Al crear cada partido se precargan y ahí puedes cambiarlas.",
                 color=ft.Colors.ON_SURFACE_VARIANT,
             ),
             modalidad,
-            tarjeta(
-                ft.DataTable(
-                    columns=[
-                        ft.DataColumn(ft.Text("Posición")),
-                        ft.DataColumn(ft.Text("Va por defecto")),
-                        ft.DataColumn(ft.Text("Pago por partido")),
-                    ],
-                    rows=filas,
-                )
+            tarjeta(ft.DataTable(
+                columns=[ft.DataColumn(ft.Text("Posición")), ft.DataColumn(ft.Text("Va por defecto"))],
+                rows=filas,
+            )),
+            ft.Text("Tarifas por tipo de partido", size=18, weight=ft.FontWeight.W_600),
+            ft.Text(
+                "«Pago al árbitro» es lo que se le paga por partido. «Paga cada equipo» es el monto establecido "
+                "que paga cada uno de los dos equipos por esa posición; si lo dejas vacío, cada equipo paga la "
+                "mitad de la tarifa del árbitro.",
+                color=ft.Colors.ON_SURFACE_VARIANT,
             ),
+            *tarjetas_tipo,
             error,
         ]
         if editable:

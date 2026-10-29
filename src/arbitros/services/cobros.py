@@ -1,8 +1,9 @@
 """Cobro del arbitraje a los equipos: quién pagó, cuánto debe y su recibo desglosado.
 
-- El arbitraje de un partido es la suma de las tarifas de sus posiciones (la tarifa congelada
-  de la asignación si ya se registró dinero al árbitro; si no, la de la liga/categoría).
-- Cada equipo paga la mitad de cada posición (si sobra un centavo lo paga el local).
+- Cada equipo paga, por cada posición del partido, el monto establecido en la liga/categoría
+  para ese tipo de partido (`LigaService.cuota_equipo_para`).
+- Si no hay monto establecido, paga la mitad de la tarifa del árbitro (la congelada de la
+  asignación si ya se registró dinero; si sobra un centavo lo paga el local).
 - La cuota se puede corregir por partido (p. ej. un equipo paga todo); al registrar un pago se
   congela en `CobroEquipo.cuota_centavos`.
 - Los partidos cancelados o suspendidos no cobran, salvo que ya se haya registrado un cobro.
@@ -127,6 +128,7 @@ class CobroService:
         if equipo_id:
             consulta = consulta.where((Partido.local_id == equipo_id) | (Partido.visitante_id == equipo_id))
         tarifas: dict[tuple, int] = {}
+        establecidas: dict[tuple, int | None] = {}
         resultado = []
         with self.db.sesion() as s:
             filas = list(s.execute(consulta).unique())
@@ -138,22 +140,26 @@ class CobroService:
                                                                       Asignacion.tarifa_centavos.is_not(None)))
                           .unique()}
         for p, jornada, liga in filas:
-            por_posicion = []
-            for posicion in p.lista_posiciones:
+            por_posicion = []  # (posición, lo que paga el local, lo que paga el visitante)
+            for posicion in p.lista_posiciones if p.se_juega else []:
+                clave = (liga.id, p.categoria_id, posicion, p.modalidad)
+                if clave not in establecidas:
+                    establecidas[clave] = self.ligas.cuota_equipo_para(*clave)
+                if establecidas[clave] is not None:
+                    por_posicion.append((posicion, establecidas[clave], establecidas[clave]))
+                    continue
                 if (p.id, posicion) in congeladas:
                     tarifa = congeladas[(p.id, posicion)]
-                elif p.se_juega:
-                    clave = (liga.id, p.categoria_id, posicion)
+                else:
                     if clave not in tarifas:
                         tarifas[clave] = self.ligas.tarifa_para(*clave)
                     tarifa = tarifas[clave]
-                else:
-                    tarifa = 0
-                por_posicion.append((posicion, tarifa))
+                por_posicion.append((posicion, _repartir(tarifa, True), _repartir(tarifa, False)))
             for equipo, rival, es_local in ((p.local, p.visitante, True), (p.visitante, p.local, False)):
                 if equipo_id and equipo.id != equipo_id:
                     continue
-                desglose = [(pos, _repartir(t, es_local)) for pos, t in por_posicion if t]
+                desglose = [(pos, local if es_local else visita) for pos, local, visita in por_posicion
+                            if (local if es_local else visita)]
                 c = cobros.get((p.id, equipo.id))
                 if c and c.desglose is not None:
                     desglose = _texto_a_desglose(c.desglose)

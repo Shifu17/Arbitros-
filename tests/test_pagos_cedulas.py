@@ -255,3 +255,33 @@ def test_recibo_desglosado(ctx):
     assert generar_png(recibo)[1:4] == b"PNG" and generar_pdf(recibo).startswith(b"%PDF")
     vacio = cob.recibo(p1.local_id, jornada_id=ctx["j1"].id)
     assert vacio.periodo == "Jornada 1"
+
+
+def test_tarifas_y_cuotas_por_tipo_de_partido(ctx):
+    ligas, liga = ctx["ligas"], ctx["liga"]
+    # Fútbol 11 (tipo principal): monto establecido que paga cada equipo
+    ligas.configurar_posiciones_y_tarifas(liga.id, ["central", "asistente_1"], {"central": 35000, "asistente_1": 20000},
+                                          cuotas_equipo={"central": 25000, "asistente_1": 15000})
+    l = _cobro(ctx, ctx["p1"])
+    assert l.desglose == [("central", 25000), ("asistente_1", 15000)] and l.cuota == 40000
+    assert _cobro(ctx, ctx["p1"], local=False).cuota == 40000  # los dos equipos pagan lo establecido
+    # Fútbol 7 con sus propios montos
+    ligas.configurar_tarifas_tipo(liga.id, "futbol_7", {"central": 30000}, {"central": 20000})
+    assert ligas.tarifa_para(liga.id, None, "central", "futbol_7") == 30000
+    assert ligas.tarifa_para(liga.id, None, "central", "bardas") == 35000  # sin montos propios: los del principal
+    p = ctx["jornadas"].crear_partido(ctx["j1"].id, DatosPartido(
+        AYER, time(13), ctx["p1"].local_id, ctx["p1"].visitante_id, ctx["p1"].campo_id, ["central"],
+        categoria_id=ctx["p1"].categoria_id, modalidad="futbol_7"), forzar=True)
+    AsignacionService(ctx["pagos"].db, ConfiguracionService(ctx["pagos"].db)).asignar(
+        p.id, "central", ctx["ana"].id, forzar=True)
+    assert _linea(ctx, p, ctx["ana"]).tarifa == 30000
+    assert _cobro(ctx, p).desglose == [("central", 20000)]
+    # Vaciar los montos de un tipo vuelve a usar los del principal
+    ligas.configurar_tarifas_tipo(liga.id, "futbol_7", {"central": 0}, {"central": None})
+    assert not ligas.tiene_tarifas_propias(liga.id, "futbol_7") and _cobro(ctx, p).cuota == 25000
+    # Categoría con montos propios
+    ligas.configurar_categoria(ctx["premier"].id, None, {"central": 50000, "asistente_1": 30000},
+                               cuotas_equipo={"central": 30000, "asistente_1": None})
+    assert _cobro(ctx, ctx["p2"]).desglose == [("central", 30000), ("asistente_1", 15000)]
+    with pytest.raises(ErrorValidacion):
+        ligas.configurar_tarifas_tipo(liga.id, "futbol_7", {"central": 100}, {"central": -1})

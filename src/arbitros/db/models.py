@@ -193,6 +193,8 @@ class TarifaCategoria(Base):
     categoria_id: Mapped[int] = mapped_column(ForeignKey("categorias.id", ondelete="CASCADE"), primary_key=True)
     posicion: Mapped[str] = mapped_column(String(20), primary_key=True)
     monto_centavos: Mapped[int] = mapped_column(Integer, default=0)
+    # Lo que paga CADA equipo por esa posición; None = la mitad de la tarifa del árbitro
+    cuota_equipo_centavos: Mapped[int | None] = mapped_column(Integer)
 
 
 class Equipo(Base):
@@ -218,13 +220,19 @@ class Campo(Base):
 
 
 class Tarifa(Base):
-    """Pago por partido para una posición en una liga. Dinero siempre en centavos."""
+    """Pago por partido para una posición en un tipo de partido de una liga. Dinero siempre en centavos.
+
+    Un tipo de partido sin filas usa las del tipo principal de la liga (`Liga.modalidad`).
+    """
 
     __tablename__ = "tarifas"
 
     liga_id: Mapped[int] = mapped_column(ForeignKey("ligas.id", ondelete="CASCADE"), primary_key=True)
+    modalidad: Mapped[str] = mapped_column(String(20), primary_key=True)
     posicion: Mapped[str] = mapped_column(String(20), primary_key=True)
     monto_centavos: Mapped[int] = mapped_column(Integer, default=0)
+    # Lo que paga CADA equipo por esa posición; None = la mitad de la tarifa del árbitro
+    cuota_equipo_centavos: Mapped[int | None] = mapped_column(Integer)
 
 
 class Jornada(Base):

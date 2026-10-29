@@ -305,3 +305,34 @@ def test_dialogo_actualizacion(app):
 
     app._dialogo_actualizacion(InfoVersion("9.9.9", "- Novedad", "https://github.com/x", "A-9.9.9-instalador.exe", 10, None))
     assert app.page.dialogos
+
+
+def _controles(control, tipo):
+    """Todos los controles de un tipo dentro de un árbol."""
+    encontrados, pendientes, vistos = [], [control], set()
+    while pendientes:
+        c = pendientes.pop()
+        if id(c) in vistos:
+            continue
+        vistos.add(id(c))
+        if isinstance(c, tipo):
+            encontrados.append(c)
+        for f in dataclasses.fields(c):
+            if f.name.startswith("_") or f.name == "parent":
+                continue
+            valor = getattr(c, f.name, None)
+            pendientes += [h for h in (valor if isinstance(valor, list) else [valor]) if isinstance(h, BaseControl)]
+    return encontrados
+
+
+def test_tarifas_por_tipo_de_partido(app):
+    liga = next(r.liga for r in app.ligas.listar() if r.liga.nombre == "Liga Sabatina")
+    panel = ligas.PanelTarifas(app, liga).construir()
+    campos = [c for c in _controles(panel, ft.TextField)]
+    assert len(campos) == 2 * (4 + 2 + 3)  # árbitro y equipo por posición de cada tipo
+    for c in campos:
+        c.value = "300"
+    boton = next(b for b in _controles(panel, ft.FilledButton) if b.content == "Guardar")
+    boton.on_click(None)
+    assert app.ligas.cuotas_equipo(liga.id, "futbol_7")["central"] == 30000
+    assert app.ligas.tarifas(liga.id)["central"] == 30000
