@@ -22,6 +22,7 @@ from arbitros.services.auth import AuthService
 from arbitros.services.actualizador import Actualizador, ErrorActualizacion, InfoVersion
 from arbitros.services.asignaciones import AsignacionService
 from arbitros.services.cedulas import CedulaService
+from arbitros.services.cobros import CobroService
 from arbitros.services.configuracion import ConfiguracionService
 from arbitros.services.disponibilidad import DisponibilidadService
 from arbitros.services.jornadas import JornadaService
@@ -53,7 +54,8 @@ class App:
         self.rol = RolService(db, self.jornadas, self.asignaciones)
         self.pagos = PagoService(db, self.ligas)
         self.cedulas = CedulaService(db, rutas)
-        self.reportes = ReporteService(self.pagos, self.cedulas)
+        self.cobros = CobroService(db, self.ligas)
+        self.reportes = ReporteService(self.pagos, self.cedulas, self.cobros)
         self.usuario: Usuario | None = None
         # Última liga/jornada vista, para que al cambiar de sección no se pierda la selección
         self.seleccion: dict = {"liga_id": None, "jornada_id": None}

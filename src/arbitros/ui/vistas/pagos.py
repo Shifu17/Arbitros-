@@ -1,4 +1,4 @@
-"""Pagos: resumen por árbitro, captura de lo pagado en campo e historial de liquidaciones."""
+"""Pagos: resumen por árbitro, captura de lo pagado en campo, historial de liquidaciones y cobro a equipos."""
 
 from datetime import date
 from urllib.parse import quote
@@ -14,6 +14,7 @@ from arbitros.services.errores import ErrorValidacion
 from arbitros.services.jornadas import etiqueta_jornada
 from arbitros.services.pagos import LineaPago, ResumenArbitro
 from arbitros.ui import tema
+from arbitros.ui.vistas.cobros import PanelEquipos
 from arbitros.ui.comunes import (
     ANCHO_DIALOGO,
     CampoFecha,
@@ -62,6 +63,7 @@ class VistaPagos:
                 ft.Segment(value="arbitros", label=ft.Text("Por árbitro"), icon=ft.Icon(ft.Icons.PEOPLE)),
                 ft.Segment(value="campo", label=ft.Text("Registrar pagos en campo"), icon=ft.Icon(ft.Icons.SPORTS)),
                 ft.Segment(value="historial", label=ft.Text("Pagos realizados"), icon=ft.Icon(ft.Icons.HISTORY)),
+                ft.Segment(value="equipos", label=ft.Text("Cobro a equipos"), icon=ft.Icon(ft.Icons.GROUPS)),
             ],
             on_change=self._cambiar_pestana,
         )
@@ -81,6 +83,8 @@ class VistaPagos:
     def refrescar(self, actualizar: bool = True) -> None:
         if self.pestana == "campo":
             self.cuerpo.content = PanelCampo(self.app, self.shell).construir()
+        elif self.pestana == "equipos":
+            self.cuerpo.content = PanelEquipos(self.app, self.shell).construir()
         elif self.pestana == "historial":
             self.cuerpo.content = self._historial()
         else:

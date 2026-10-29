@@ -7,6 +7,7 @@ from arbitros.db.models import ESTADO_CANCELADO
 from arbitros.services.arbitros import ArbitroService, DatosArbitro
 from arbitros.services.asignaciones import AsignacionService
 from arbitros.services.cedulas import EXCEPCION, NO_REQUERIDA, PENDIENTE, PROXIMA, REGISTRADA, CedulaService
+from arbitros.services.cobros import CobroService
 from arbitros.services.configuracion import ConfiguracionService
 from arbitros.services.errores import ErrorValidacion
 from arbitros.services.jornadas import DatosPartido, JornadaService
@@ -48,7 +49,8 @@ def ctx(db, rutas):
     for p in (p1, p2, p3):
         asig.asignar(p.id, "central", juan.id, forzar=True)
     asig.asignar(p1.id, "asistente_1", ana.id, forzar=True)
-    return dict(ligas=ligas, jornadas=jornadas, pagos=pagos, cedulas=cedulas, rutas=rutas, liga=liga, j1=j1,
+    return dict(ligas=ligas, jornadas=jornadas, pagos=pagos, cedulas=cedulas, cobros=CobroService(db, ligas),
+                rutas=rutas, liga=liga, j1=j1,
                 p1=p1, p2=p2, p3=p3, juan=juan, ana=ana, premier=premier)
 
 
@@ -170,12 +172,86 @@ def test_subir_cedula_quita_excepcion(ctx, tmp_path):
 
 
 def test_reportes_y_excel(ctx, tmp_path):
-    rep = ReporteService(ctx["pagos"], ctx["cedulas"])
+    rep = ReporteService(ctx["pagos"], ctx["cedulas"], ctx["cobros"])
     filas = rep.arbitrajes(None, None)
     assert filas[0].nombre == "Juan Pérez" and filas[0].total_partidos == 3 and filas[0].por_posicion == {"central": 3}
     assert rep.partidos_por_estado(None, None)["programado"] == 3
     ruta = rep.exportar_excel(tmp_path / "reporte", AYER - timedelta(days=30), MANANA)
     libro = openpyxl.load_workbook(ruta)
-    assert libro.sheetnames == ["Resumen por árbitro", "Arbitrajes", "Detalle de pagos", "Historial de pagos", "Cédulas"]
+    assert libro.sheetnames == ["Resumen por árbitro", "Arbitrajes", "Detalle de pagos", "Historial de pagos",
+                               "Pagos de equipos", "Detalle de equipos", "Cédulas"]
     hoja = libro["Resumen por árbitro"]
     assert hoja["A5"].value == "Ana López" and hoja["F6"].value == 850.0
+
+
+def _cobro(ctx, partido, local=True):
+    return next(l for l in ctx["cobros"].lineas() if l.partido.id == partido.id and l.es_local == local)
+
+
+def test_cada_equipo_paga_la_mitad_del_arbitraje(ctx):
+    local, visita = _cobro(ctx, ctx["p1"]), _cobro(ctx, ctx["p1"], local=False)
+    assert local.equipo.nombre == "Tigres" and visita.equipo.nombre == "Pumas"
+    assert local.desglose == [("central", 17500), ("asistente_1", 10000)] and local.cuota == 27500
+    assert visita.cuota == 27500 and local.saldo == 27500 and not local.cuota_fija
+    assert _cobro(ctx, ctx["p2"]).cuota == 40000  # tarifas de Premier
+
+
+def test_centavo_impar_lo_paga_el_local(ctx):
+    ctx["ligas"].configurar_posiciones_y_tarifas(ctx["liga"].id, ["central", "asistente_1"],
+                                                 {"central": 35001, "asistente_1": 20000})
+    assert _cobro(ctx, ctx["p1"]).cuota == 27501 and _cobro(ctx, ctx["p1"], False).cuota == 27500
+
+
+def test_registrar_pago_de_equipo_y_congelar_cuota(ctx):
+    cob, p1 = ctx["cobros"], ctx["p1"]
+    tigres = _cobro(ctx, p1).equipo
+    cob.registrar(p1.id, tigres.id, 20000, fecha=AYER, forma_pago="efectivo", nota="Faltan 75")
+    l = _cobro(ctx, p1)
+    assert l.pagado == 20000 and l.saldo == 7500 and l.cuota_fija and l.fecha_pago == AYER and l.forma_pago == "efectivo"
+    ctx["ligas"].configurar_posiciones_y_tarifas(ctx["liga"].id, ["central", "asistente_1"],
+                                                 {"central": 90000, "asistente_1": 20000})
+    assert _cobro(ctx, p1).cuota == 27500  # congelada
+    assert _cobro(ctx, p1, False).cuota == 55000  # el visitante aún no paga: usa la tarifa nueva
+    with pytest.raises(ErrorValidacion):
+        cob.registrar(p1.id, tigres.id, 30000)
+    with pytest.raises(ErrorValidacion):
+        cob.registrar(p1.id, tigres.id, 100, forma_pago="cheque")
+    with pytest.raises(ErrorValidacion):
+        cob.registrar(ctx["p2"].id, tigres.id, 100)  # no juega ese partido
+    # Un equipo paga todo el arbitraje: se le corrige la cuota y queda un ajuste en el desglose
+    cob.registrar(p1.id, tigres.id, 55000, cuota=55000)
+    l = _cobro(ctx, p1)
+    assert l.saldo == 0 and l.ajuste == 27500 and l.desglose == [("central", 17500), ("asistente_1", 10000)]
+    cob.deshacer(p1.id, tigres.id)
+    assert _cobro(ctx, p1).pagado == 0 and not _cobro(ctx, p1).cuota_fija
+
+
+def test_pago_completo_y_resumen_por_equipo(ctx):
+    cob = ctx["cobros"]
+    claves = [l.clave for l in cob.lineas(jornada_id=ctx["j1"].id)]
+    assert len(claves) == 4 and cob.pago_completo(claves[:3], forma_pago="transferencia") == 3
+    assert cob.pago_completo(claves[:3]) == 0
+    resumen = {r.equipo.nombre: r for r in cob.resumen_por_equipo()}
+    assert resumen["Toros"].pendiente == 40000 and resumen["Tigres"].pendiente == 0 and resumen["Tigres"].pagado == 27500
+    assert resumen["Leones"].por_jugar == 27500 and resumen["Leones"].pendiente == 0
+
+
+def test_cancelado_no_cobra(ctx):
+    p1 = ctx["p1"]
+    ctx["jornadas"].cambiar_estado([p1.id], ESTADO_CANCELADO, "Lluvia")
+    assert not [l for l in ctx["cobros"].lineas() if l.partido.id == p1.id]
+    with pytest.raises(ErrorValidacion):
+        ctx["cobros"].registrar(p1.id, p1.local_id, 100)
+
+
+def test_recibo_desglosado(ctx):
+    cob, p1 = ctx["cobros"], ctx["p1"]
+    cob.registrar(p1.id, p1.local_id, 27500, fecha=AYER, forma_pago="al_arbitro")
+    recibo = cob.recibo(p1.local_id)
+    assert recibo.equipo.nombre == "Tigres" and recibo.total == 27500 and recibo.saldo == 0
+    texto = cob.recibo_texto(recibo)
+    assert "Recibo de arbitrajes · Tigres" in texto and "Central: $175" in texto and "Pagado" in texto
+    from arbitros.services.recibo_imagen import generar_pdf, generar_png
+    assert generar_png(recibo)[1:4] == b"PNG" and generar_pdf(recibo).startswith(b"%PDF")
+    vacio = cob.recibo(p1.local_id, jornada_id=ctx["j1"].id)
+    assert vacio.periodo == "Jornada 1"

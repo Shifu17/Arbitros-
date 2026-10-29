@@ -347,6 +347,36 @@ class Pago(Base):
     arbitro: Mapped["Arbitro"] = relationship(lazy="joined")
 
 
+FORMAS_PAGO = {
+    "efectivo": "Efectivo",
+    "transferencia": "Transferencia",
+    "al_arbitro": "Al árbitro en el campo",
+}
+
+
+class CobroEquipo(Base):
+    """Lo que un equipo pagó del arbitraje de un partido. Sin fila = no ha pagado nada.
+
+    Por defecto cada equipo paga la mitad del arbitraje (services.cobros); `cuota_centavos`
+    se congela al registrar el pago para que cambiar las tarifas no altere cuentas ya hechas.
+    """
+
+    __tablename__ = "cobros_equipos"
+    __table_args__ = (UniqueConstraint("partido_id", "equipo_id"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    partido_id: Mapped[int] = mapped_column(ForeignKey("partidos.id", ondelete="CASCADE"), index=True)
+    equipo_id: Mapped[int] = mapped_column(ForeignKey("equipos.id", ondelete="CASCADE"), index=True)
+    cuota_centavos: Mapped[int | None] = mapped_column(Integer)
+    # Desglose congelado junto con la cuota: "posicion:centavos,..."
+    desglose: Mapped[str | None] = mapped_column(String(200))
+    pagado_centavos: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    fecha_pago: Mapped[date | None] = mapped_column(Date)
+    forma_pago: Mapped[str | None] = mapped_column(String(20))
+    nota: Mapped[str | None] = mapped_column(String(250))
+    creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class CedulaArchivo(Base):
     """Archivo (PDF o foto) de la cédula de un partido. `ruta` es relativa a la carpeta de documentos."""
 

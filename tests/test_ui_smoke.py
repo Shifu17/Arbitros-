@@ -21,7 +21,7 @@ from arbitros.services.ligas import DatosLiga
 from arbitros.ui.app import App
 from arbitros.ui.shell import Shell
 from arbitros.ui.vistas import (
-    acceso, arbitros, cedulas, disponibilidad, jornadas, ligas, pagos, reportes, respaldos, rol, usuarios,
+    acceso, arbitros, cedulas, cobros, disponibilidad, jornadas, ligas, pagos, reportes, respaldos, rol, usuarios,
 )
 
 
@@ -248,9 +248,23 @@ def test_pagos_cedulas_reportes(app, tmp_path):
     vp = pagos.VistaPagos(app, shell)
     vp.construir()
     vp.filtro.periodo.value = "todo"
-    for pestana in ("arbitros", "campo", "historial"):
+    for pestana in ("arbitros", "campo", "historial", "equipos"):
         vp.pestana = pestana
         vp.refrescar()
+    # Cobro a equipos: pestaña, diálogos y recibo
+    pe = cobros.PanelEquipos(app, shell)
+    pe.construir()
+    l = app.cobros.lineas()[0]
+    pe._dialogo_registrar(l)
+    pe._completo(l)
+    pe._recibo(l)
+    pe._deshacer(app.cobros.lineas()[0])
+    pe._todos_completo([x.clave for x in app.cobros.lineas()])
+    app.cobros.registrar(l.partido.id, l.equipo.id, 100, forma_pago="efectivo", nota="Parcial")
+    pe.refrescar()
+    app.usuario = SimpleNamespace(nombre="Consulta", es_admin=False, rol=ROL_CONSULTA)
+    pe.refrescar()
+    app.usuario = app.auth.autenticar("admin", "secreta1")
     r = app.pagos.resumen_por_arbitro()[0]
     vp._detalle(r)
     vp._estado_cuenta(r)
@@ -277,6 +291,8 @@ def test_pagos_cedulas_reportes(app, tmp_path):
     vr.construir()
     vr.filtro.periodo.value = "todo"
     vr.refrescar()
+    vr._recibo(app.cobros.resumen_por_equipo()[0].equipo.id)
+    vr._ir_a_cobros()
     va = arbitros.VistaArbitros(app)
     va.construir()
     va._historial(juan)

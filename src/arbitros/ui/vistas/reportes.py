@@ -10,6 +10,7 @@ from arbitros.db.models import ESTADOS_PARTIDO, POSICIONES
 from arbitros.services.dinero import formatear_monto
 from arbitros.ui import tema
 from arbitros.ui.comunes import FiltroPeriodo, avisar, encabezado, estado_vacio, fecha_corta, tarjeta, tarjeta_dato
+from arbitros.ui.vistas.cobros import dialogo_recibo
 
 log = logging.getLogger(__name__)
 
@@ -30,7 +31,7 @@ class VistaReportes:
         self.refrescar(actualizar=False)
         return ft.Column(
             [
-                encabezado("Reportes", "Partidos arbitrados, pagos y cédulas del periodo.",
+                encabezado("Reportes", "Partidos arbitrados, pagos de árbitros y equipos, y cédulas del periodo.",
                            [ft.FilledButton("Exportar a Excel…", icon=ft.Icons.TABLE_VIEW, on_click=self._exportar)]),
                 self.filtro.control,
                 self.contenido,
@@ -88,6 +89,7 @@ class VistaReportes:
             ft.Text("Partidos arbitrados por árbitro", size=18, weight=ft.FontWeight.W_600),
             tabla_arbitros,
         ]
+        controles += self._equipos(desde, hasta, liga_id)
         if cedulas:
             controles += [
                 ft.Row([ft.Text("Cédulas pendientes", size=18, weight=ft.FontWeight.W_600),
@@ -101,6 +103,55 @@ class VistaReportes:
         self.contenido.controls = controles
         if actualizar:
             self.page.update()
+
+    def _equipos(self, desde, hasta, liga_id) -> list[ft.Control]:
+        """Quién pagó los arbitrajes: totales y tabla por equipo con su recibo."""
+        resumen = self.app.cobros.resumen_por_equipo(desde, hasta, liga_id)
+        total, pagado = sum(r.total for r in resumen), sum(r.pagado for r in resumen)
+        debe = sum(r.pendiente for r in resumen)
+        datos = ft.Row(
+            [
+                tarjeta_dato("Arbitrajes de equipos", formatear_monto(total), icono=ft.Icons.GROUPS),
+                tarjeta_dato("Pagado por equipos", formatear_monto(pagado), tema.EXITO_TEXTO, ft.Icons.PAID),
+                tarjeta_dato("Adeudo de equipos", formatear_monto(debe),
+                             tema.PELIGRO_TEXTO if debe else tema.EXITO_TEXTO, ft.Icons.MONEY_OFF),
+            ],
+            spacing=12,
+        )
+        if not resumen:
+            tabla = estado_vacio(ft.Icons.GROUPS, "Sin arbitrajes que cobrar en este periodo")
+        else:
+            filas = []
+            for r in resumen:
+                filas.append(ft.DataRow(cells=[
+                    ft.DataCell(ft.Column([ft.Text(r.equipo.nombre, weight=ft.FontWeight.W_500),
+                                           ft.Text(r.liga.nombre, size=12, color=ft.Colors.ON_SURFACE_VARIANT)],
+                                          spacing=0, alignment=ft.MainAxisAlignment.CENTER)),
+                    ft.DataCell(ft.Text(str(r.partidos))),
+                    ft.DataCell(ft.Text(formatear_monto(r.total))),
+                    ft.DataCell(ft.Text(formatear_monto(r.pagado), color=tema.EXITO_TEXTO if r.pagado else None)),
+                    ft.DataCell(ft.Text(formatear_monto(r.pendiente), weight=ft.FontWeight.BOLD,
+                                        color=tema.PELIGRO_TEXTO if r.pendiente else tema.EXITO_TEXTO)),
+                    ft.DataCell(ft.IconButton(ft.Icons.RECEIPT_LONG, tooltip="Ver recibo desglosado",
+                                              on_click=lambda _, r=r: self._recibo(r.equipo.id))),
+                ]))
+            tabla = tarjeta(ft.Row([ft.DataTable(
+                columns=[ft.DataColumn(ft.Text(t), numeric=n) for t, n in (
+                    ("Equipo", False), ("Partidos", True), ("Arbitrajes", True), ("Pagado", True), ("Debe", True),
+                    ("Recibo", False))],
+                rows=filas, heading_row_color=ft.Colors.SURFACE_CONTAINER_HIGHEST, data_row_max_height=60,
+            )], scroll=ft.ScrollMode.AUTO))
+        return [ft.Row([ft.Text("Arbitrajes pagados por equipo", size=18, weight=ft.FontWeight.W_600),
+                        ft.TextButton("Registrar pagos", on_click=lambda _: self._ir_a_cobros())]),
+                datos, tabla]
+
+    def _recibo(self, equipo_id: int) -> None:
+        desde, hasta = self.filtro.rango
+        dialogo_recibo(self.app, self.app.cobros.recibo(equipo_id, desde, hasta))
+
+    def _ir_a_cobros(self) -> None:
+        self.app.seleccion["pagos_pestana"] = "equipos"
+        self.shell.ir_a("pagos")
 
     async def _exportar(self, _) -> None:
         desde, hasta = self.filtro.rango
