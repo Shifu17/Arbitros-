@@ -110,3 +110,30 @@ def test_tarifas_existentes_quedan_en_el_tipo_principal(tmp_path):
     assert ligas.tarifas(1)["central"] == 25000 and ligas.tarifas(2, "bardas")["central"] == 40000
     assert ligas.cuota_equipo(2) is None
     db.cerrar()
+
+
+def test_ligas_quedan_con_los_tipos_que_ya_usan(tmp_path):
+    ruta = tmp_path / "t.db"
+    db = Database.desde_archivo(ruta)
+    command.upgrade(configuracion_alembic(db), "0013")
+    db.cerrar()
+    con = sqlite3.connect(ruta)
+    con.executescript("""
+        INSERT INTO ligas (id, nombre, tipo, modalidad, posiciones_defecto, activa)
+            VALUES (1, 'Mixta', 'liga', 'futbol_11', 'central', 1), (2, 'Solo once', 'liga', 'futbol_11', 'central', 1);
+        INSERT INTO categorias (id, liga_id, nombre, activo, modalidad) VALUES (1, 1, 'Bardas', 1, 'bardas');
+        INSERT INTO tarifas (liga_id, modalidad, posicion, monto_centavos) VALUES (1, 'futbol_7', 'central', 20000),
+            (2, 'futbol_11', 'central', 40000);
+        INSERT INTO campos (id, liga_id, nombre, activo) VALUES (1, 1, 'Campo 1', 1);
+    """)
+    con.commit()
+    con.close()
+    from arbitros.services.ligas import LigaService
+
+    db = Database.desde_archivo(ruta)
+    migrar(db)
+    ligas = LigaService(db)
+    assert ligas.obtener(1).lista_modalidades == ["futbol_11", "futbol_7", "bardas"]
+    assert ligas.obtener(2).lista_modalidades == ["futbol_11"]
+    assert ligas.campos.listar(1)[0].modalidad is None
+    db.cerrar()

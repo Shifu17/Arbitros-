@@ -21,6 +21,7 @@ from arbitros.db.models import (
     Partido,
     Tarifa,
     TarifaCategoria,
+    modalidades_a_csv,
     nombre_modalidad,
     posiciones_a_csv,
     posiciones_no_permitidas,
@@ -38,6 +39,7 @@ class DatosLiga:
     posiciones: list[str] = field(default_factory=lambda: ["central"])
     notas: str = ""
     modalidad: str = FUTBOL_11
+    otras_modalidades: list[str] = field(default_factory=list)  # otros tipos que también juega
 
 
 @dataclass
@@ -55,6 +57,11 @@ def _texto_no_permitidas(posiciones: list[str], modalidad: str | None) -> str:
 
 def _nombre_limpio(nombre: str) -> str:
     return " ".join((nombre or "").split())
+
+
+def _validar_extra(extra: dict) -> None:
+    if extra.get("modalidad") is not None and extra["modalidad"] not in MODALIDADES:
+        raise ErrorValidacion("Tipo de partido inválido", {"modalidad": "Tipo de partido inválido"})
 
 
 class Catalogo:
@@ -78,6 +85,7 @@ class Catalogo:
 
     def crear(self, liga_id: int, nombre: str, **extra):
         nombre = _nombre_limpio(nombre)
+        _validar_extra(extra)
         with self.db.sesion() as s:
             self._validar_nombre(s, liga_id, nombre)
             nuevo = self.modelo(liga_id=liga_id, nombre=nombre, **extra)
@@ -88,6 +96,7 @@ class Catalogo:
     def crear_varios(self, liga_id: int, texto: str, **extra) -> tuple[list[str], list[str]]:
         """Un nombre por renglón. Devuelve (creados, omitidos por repetidos)."""
         creados, omitidos = [], []
+        _validar_extra(extra)
         with self.db.sesion() as s:
             existentes = {
                 sin_acentos(n) for n in s.scalars(select(self.modelo.nombre).where(self.modelo.liga_id == liga_id))
@@ -106,6 +115,7 @@ class Catalogo:
 
     def actualizar(self, item_id: int, nombre: str, **extra):
         nombre = _nombre_limpio(nombre)
+        _validar_extra(extra)
         with self.db.sesion() as s:
             item = s.get(self.modelo, item_id)
             if not item:
@@ -193,6 +203,7 @@ class LigaService:
                 nombre=nombre,
                 tipo=datos.tipo,
                 modalidad=datos.modalidad,
+                otras_modalidades=_otras(datos.otras_modalidades, datos.modalidad),
                 posiciones_defecto=posiciones_a_csv(datos.posiciones),
                 notas=(datos.notas or "").strip() or None,
             )
@@ -202,6 +213,16 @@ class LigaService:
                 for i, dia in enumerate(dias, start=1):
                     s.add(Jornada(liga_id=liga.id, numero=i, fecha_inicio=dia))
             return liga
+
+    def configurar_modalidades(self, liga_id: int, otras: list[str]) -> None:
+        """Otros tipos de partido que juega la liga además del principal."""
+        if any(m not in MODALIDADES for m in otras):
+            raise ErrorValidacion("Tipo de partido inválido")
+        with self.db.sesion() as s:
+            liga = s.get(Liga, liga_id)
+            if not liga:
+                raise ErrorValidacion("La liga ya no existe.")
+            liga.otras_modalidades = _otras(otras, liga.modalidad)
 
     def actualizar(self, liga_id: int, nombre: str, notas: str = "") -> Liga:
         with self.db.sesion() as s:
@@ -381,7 +402,7 @@ class LigaService:
                 errores["nombre"] = "Ya existe una liga o torneo con ese nombre"
         if datos.tipo not in (TIPO_LIGA, TIPO_TORNEO):
             errores["tipo"] = "Tipo inválido"
-        if datos.modalidad not in MODALIDADES:
+        if datos.modalidad not in MODALIDADES or any(m not in MODALIDADES for m in datos.otras_modalidades):
             errores["modalidad"] = "Tipo de partido inválido"
         if not posiciones_a_csv(datos.posiciones):
             errores["posiciones"] = "Marca al menos una posición"
@@ -390,6 +411,10 @@ class LigaService:
         if errores:
             raise ErrorValidacion("Revisa los datos marcados.", errores)
         return nombre
+
+
+def _otras(modalidades: list[str], principal: str | None) -> str | None:
+    return modalidades_a_csv(m for m in modalidades if m != principal) or None
 
 
 def _validar_montos(montos) -> None:

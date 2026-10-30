@@ -291,3 +291,30 @@ def test_tipo_de_partido_solo_admite_sus_posiciones(ligas, svc, liga):
     with pytest.raises(ErrorValidacion):
         ligas.configurar_posiciones_y_tarifas(liga.id, ["central", "anotador"], {})
     ligas.configurar_posiciones_y_tarifas(liga.id, ["central", "anotador"], {}, modalidad="bardas")
+
+
+def test_liga_con_varios_tipos_y_tipo_de_cancha(ligas, svc):
+    liga = ligas.crear(DatosLiga(nombre="Liga Mixta", posiciones=["central"],
+                                 otras_modalidades=["bardas", "futbol_7", "futbol_11"]))
+    # El principal va primero y no se repite
+    assert liga.lista_modalidades == ["futbol_11", "futbol_7", "bardas"]
+    ligas.configurar_modalidades(liga.id, ["bardas"])
+    assert ligas.obtener(liga.id).lista_modalidades == ["futbol_11", "bardas"]
+    with pytest.raises(ErrorValidacion):
+        ligas.configurar_modalidades(liga.id, ["voleibol"])
+
+    for n in ("Tigres", "Pumas"):
+        ligas.equipos.crear(liga.id, n)
+    ligas.campos.crear(liga.id, "Campo 1")
+    ligas.campos.crear(liga.id, "Bardas Norte", modalidad="bardas")
+    with pytest.raises(ErrorValidacion):
+        ligas.campos.crear(liga.id, "Cancha rara", modalidad="voleibol")
+    eq, ca = _ids(ligas, liga)
+    j = svc.crear(liga.id, SAB)
+    # Sin indicar tipo, el partido toma el de la cancha; si la cancha no tiene, el de la liga
+    assert svc.crear_partido(j.id, _partido(eq, ca, campo="Bardas Norte"), forzar=True).modalidad == "bardas"
+    assert svc.crear_partido(j.id, _partido(eq, ca, hora=time(12)), forzar=True).modalidad == "futbol_11"
+    # Lo indicado en el partido manda sobre la cancha
+    d = _partido(eq, ca, campo="Bardas Norte", hora=time(14))
+    d.modalidad = "futbol_11"
+    assert svc.crear_partido(j.id, d, forzar=True).modalidad == "futbol_11"

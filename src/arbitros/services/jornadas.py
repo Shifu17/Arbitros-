@@ -276,8 +276,12 @@ class JornadaService:
 
     @staticmethod
     def _modalidad(s, jornada: Jornada, d: DatosPartido) -> str:
+        """Tipo indicado > el de la cancha > el de la categoría > el principal de la liga."""
         if d.modalidad:
             return d.modalidad
+        campo = s.get(Campo, d.campo_id) if d.campo_id else None
+        if campo and campo.modalidad:
+            return campo.modalidad
         categoria = s.get(Categoria, d.categoria_id) if d.categoria_id else None
         liga = s.get(Liga, jornada.liga_id)
         return (categoria.modalidad if categoria else None) or liga.modalidad or FUTBOL_11

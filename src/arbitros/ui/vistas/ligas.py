@@ -87,19 +87,26 @@ def posiciones_marcadas(casillas: dict[str, ft.Checkbox]) -> list[str]:
 HEREDAR = "liga"
 
 
+def opciones_modalidad(tipos: list[str] | None = None, actual: str | None = None) -> list[ft.DropdownOption]:
+    """Opciones de tipo de partido: los `tipos` indicados (todos si es None) más el `actual`."""
+    elegidos = set(tipos or MODALIDADES) | ({actual} if actual else set())
+    return [ft.DropdownOption(key=k, text=v[0]) for k, v in MODALIDADES.items() if k in elegidos]
+
+
 def selector_modalidad(valor: str | None, casillas: dict[str, ft.Checkbox] | None = None, page=None,
                        heredar: bool = False, al_cambiar=None, modalidad_heredada: str | None = None,
-                       **kwargs) -> ft.Dropdown:
+                       tipos: list[str] | None = None, **kwargs) -> ft.Dropdown:
     """Tipo de partido (Fútbol 11 / 7 / bardas).
 
     Al cambiarlo, en `casillas` solo quedan visibles las posiciones de ese tipo y se marcan las que lleva
-    normalmente. Con `heredar`, la opción «Igual que la liga» usa `modalidad_heredada`.
+    normalmente. Con `heredar`, la opción «Igual que la liga» usa `modalidad_heredada`. `tipos` limita
+    las opciones a los tipos que juega la liga.
     """
-    opciones = [ft.DropdownOption(key=k, text=v[0]) for k, v in MODALIDADES.items()]
+    opciones = opciones_modalidad(tipos, valor)
     if heredar:
         opciones.insert(0, ft.DropdownOption(key=HEREDAR, text="Igual que la liga"))
-    dd = ft.Dropdown(label="Tipo de partido", options=opciones, value=valor or (HEREDAR if heredar else FUTBOL_11),
-                     **kwargs)
+    kwargs.setdefault("label", "Tipo de partido")
+    dd = ft.Dropdown(options=opciones, value=valor or (HEREDAR if heredar else FUTBOL_11), **kwargs)
 
     def cambiar(_):
         if casillas is not None:
@@ -114,6 +121,55 @@ def selector_modalidad(valor: str | None, casillas: dict[str, ft.Checkbox] | Non
 
     dd.on_select = cambiar
     return dd
+
+
+class SelectorTiposLiga:
+    """Casillas con los tipos de partido que juega una liga y cuál es el principal.
+
+    El principal define las posiciones por defecto (`casillas`) y lo que usan los partidos
+    sin otro tipo; solo se pregunta cuando hay más de un tipo marcado.
+    """
+
+    def __init__(self, tipos: list[str], page, casillas: dict[str, ft.Checkbox] | None = None,
+                 al_cambiar=None, disabled: bool = False):
+        self.page = page
+        self.casillas = casillas
+        self.al_cambiar = al_cambiar
+        self.marcas = {k: ft.Checkbox(label=v[0], value=k in tipos, on_change=self._cambiar, disabled=disabled)
+                       for k, v in MODALIDADES.items()}
+        self.principal = selector_modalidad(tipos[0], casillas, page, tipos=tipos, label="Tipo principal",
+                                            al_cambiar=lambda _: self._avisar(), width=320, disabled=disabled,
+                                            visible=len(tipos) > 1)
+        self.control = ft.Column([
+            ft.Text("Tipos de partido que se juegan", weight=ft.FontWeight.W_500),
+            ft.Row(list(self.marcas.values()), wrap=True, spacing=8),
+            self.principal,
+        ], tight=True, spacing=8)
+
+    @property
+    def tipos(self) -> list[str]:
+        return [k for k, chk in self.marcas.items() if chk.value]
+
+    @property
+    def otras(self) -> list[str]:
+        return [t for t in self.tipos if t != self.principal.value]
+
+    def _cambiar(self, e) -> None:
+        if not self.tipos:  # siempre queda al menos uno
+            e.control.value = True
+        tipos = self.tipos
+        self.principal.options = opciones_modalidad(tipos)
+        self.principal.visible = len(tipos) > 1
+        if self.principal.value not in tipos:
+            self.principal.value = tipos[0]
+            if self.casillas is not None:
+                mostrar_posiciones_de(self.casillas, tipos[0], marcar_defecto=True)
+        self._avisar()
+        self.page.update()
+
+    def _avisar(self) -> None:
+        if self.al_cambiar:
+            self.al_cambiar(self.tipos)
 
 
 class VistaLigas:
@@ -197,7 +253,7 @@ class VistaLigas:
                                     ),
                                 ]
                             ),
-                            etiqueta(f"{NOMBRE_TIPO[liga.tipo]} · {nombre_modalidad(liga.modalidad)}", liga.activa),
+                            etiqueta(" · ".join([NOMBRE_TIPO[liga.tipo], *map(nombre_modalidad, liga.lista_modalidades)]), liga.activa),
                             ft.Text(
                                 (f"{r.categorias} categorías · " if r.categorias else "")
                                 + f"{r.equipos} equipos · {r.campos} campos · {r.jornadas} {unidad}",
@@ -242,7 +298,7 @@ class VistaLigas:
         bloque_torneo = ft.Column([ft.Row([fecha.campo, n_dias], spacing=12), nota_dias], visible=False, tight=True)
         fecha.campo.expand = True
         posiciones, casillas, error_pos = selector_posiciones(posiciones_de_modalidad(FUTBOL_11), FUTBOL_11)
-        modalidad = selector_modalidad(FUTBOL_11, casillas, self.page, width=ANCHO_DIALOGO)
+        tipos = SelectorTiposLiga([FUTBOL_11], self.page, casillas)
         notas = ft.TextField(label="Notas", multiline=True, min_lines=1, max_lines=3)
         categorias = ft.TextField(
             label="Categorías o sub-ligas (opcional)",
@@ -269,7 +325,8 @@ class VistaLigas:
             try:
                 liga = self.app.ligas.crear(
                     DatosLiga(nombre=nombre.value or "", tipo=tipo.value, posiciones=posiciones_marcadas(casillas),
-                              notas=notas.value or "", modalidad=modalidad.value),
+                              notas=notas.value or "", modalidad=tipos.principal.value,
+                              otras_modalidades=tipos.otras),
                     dias_torneo=dias,
                 )
             except ErrorValidacion as e:
@@ -292,11 +349,11 @@ class VistaLigas:
                         nombre,
                         tipo,
                         bloque_torneo,
-                        modalidad,
+                        tipos.control,
                         ft.Text("Árbitros que lleva cada partido normalmente", weight=ft.FontWeight.W_500),
                         posiciones,
-                        ft.Text("Si la liga tiene fut 7 y bardas, usa categorías con su propio tipo; "
-                                "y en cada partido también puedes cambiarlo.",
+                        ft.Text("Si marcas varios tipos, después a cada campo y categoría le puedes poner el suyo; "
+                                "en cada partido también puedes cambiarlo.",
                                 size=12, color=ft.Colors.ON_SURFACE_VARIANT),
                         categorias,
                         notas,
@@ -650,6 +707,7 @@ class PanelCatalogo:
 
 SIN_CATEGORIA = "sin"
 TODAS = "todas"
+CUALQUIERA = "cualquiera"
 
 
 class PanelEquipos(PanelCatalogo):
@@ -716,18 +774,39 @@ class PanelCampos(PanelCatalogo):
     icono = ft.Icons.STADIUM
 
     def __init__(self, app, liga: Liga):
-        super().__init__(app, liga, app.ligas.campos, "campo", "campos")
+        # Con varios tipos de partido, cada cancha puede ser de uno (al elegirla en un partido se usa ese tipo)
+        self.varios_tipos = len(liga.lista_modalidades) > 1
+        super().__init__(app, liga, app.ligas.campos, "campo", "campos",
+                         ayuda="Si a una cancha le pones su tipo de partido, al elegirla en un partido se pone "
+                               "ese tipo solo." if self.varios_tipos else "")
+
+    def _selector_tipo(self, valor: str | None) -> ft.Dropdown:
+        opciones = [ft.DropdownOption(key=CUALQUIERA, text="Cualquier tipo"),
+                    *opciones_modalidad(self.liga.lista_modalidades, valor)]
+        return ft.Dropdown(label="Tipo de cancha", options=opciones, value=valor or CUALQUIERA, width=220,
+                           data="modalidad")
 
     def _campos_extra(self, item=None) -> list[ft.Control]:
-        if item is None:
-            return []  # la dirección se captura al editar, para que el alta sea rápida
-        return [ft.TextField(label="Dirección o referencia", value=item.direccion or "")]
+        controles = []
+        if item is not None:  # la dirección se captura al editar, para que el alta sea rápida
+            controles.append(ft.TextField(label="Dirección o referencia", value=item.direccion or "",
+                                          data="direccion"))
+        if self.varios_tipos or (item is not None and item.modalidad):
+            controles.append(self._selector_tipo(item.modalidad if item else None))
+        return controles
 
     def _valores_extra(self, controles) -> dict:
-        return {"direccion": (controles[0].value or "").strip() or None} if controles else {}
+        valores = {}
+        for c in controles:
+            if c.data == "direccion":
+                valores["direccion"] = (c.value or "").strip() or None
+            elif c.data == "modalidad":
+                valores["modalidad"] = None if c.value in (None, CUALQUIERA) else c.value
+        return valores
 
     def _subtitulo(self, item) -> str | None:
-        return item.direccion
+        partes = [nombre_modalidad(item.modalidad) if item.modalidad else None, item.direccion]
+        return " · ".join(p for p in partes if p) or None
 
 
 class PanelCategorias(PanelCatalogo):
@@ -804,7 +883,8 @@ class PanelCategorias(PanelCatalogo):
             mostrar_montos(None if valor == HEREDAR else valor)
 
         modalidad = selector_modalidad(categoria.modalidad, casillas, self.page, heredar=True,
-                                       al_cambiar=al_elegir_tipo, modalidad_heredada=self.liga.modalidad, width=320)
+                                       al_cambiar=al_elegir_tipo, modalidad_heredada=self.liga.modalidad, width=320,
+                                       tipos=self.liga.lista_modalidades)
 
         def sincronizar(_=None):
             posiciones.disabled = usar_pos_liga.value
@@ -890,7 +970,9 @@ class PanelTarifas:
             casillas[clave].data = fila
             filas.append(fila)
         error = ft.Text("", color=ft.Colors.ERROR, visible=False)
-        modalidad = selector_modalidad(self.liga.modalidad, casillas, self.page, width=320, disabled=not editable)
+        tipos_liga = SelectorTiposLiga(self.liga.lista_modalidades, self.page, casillas,
+                                       al_cambiar=lambda _: mostrar_tarjetas(), disabled=not editable)
+        modalidad = tipos_liga.principal
         mostrar_posiciones_de(casillas, self.liga.modalidad, marcar_defecto=False)
 
         def campo_monto(valor: int | None, pista: str = "0", **kwargs) -> ft.TextField:
@@ -902,7 +984,7 @@ class PanelTarifas:
 
         # {tipo: (arbitraje por equipo, {posición: pago al árbitro})}
         montos: dict[str, tuple[ft.TextField, dict[str, ft.TextField]]] = {}
-        tarjetas_tipo = []
+        tarjetas_tipo = {}
         for tipo, (nombre_tipo, _, permitidas) in MODALIDADES.items():
             principal = tipo == self.liga.modalidad
             propios = principal or self.app.ligas.tiene_tarifas_propias(self.liga.id, tipo)
@@ -913,7 +995,7 @@ class PanelTarifas:
             montos[tipo] = (arbitraje, {p: campo_monto(tarifas.get(p), width=150) for p in permitidas})
             ayuda = ("Tipo principal de la liga." if principal else
                      f"Si lo dejas vacío usa los montos de {nombre_modalidad(self.liga.modalidad)}.")
-            tarjetas_tipo.append(tarjeta(ft.Container(ft.Column([
+            tarjetas_tipo[tipo] = (tarjeta(ft.Container(ft.Column([
                 ft.Text(nombre_tipo, size=16, weight=ft.FontWeight.W_600),
                 ft.Text(ayuda, size=12, color=ft.Colors.ON_SURFACE_VARIANT),
                 arbitraje,
@@ -925,6 +1007,13 @@ class PanelTarifas:
                     column_spacing=24,
                 ),
             ], spacing=8), padding=ft.Padding.only(left=16, top=12, right=16, bottom=4))))
+
+        def mostrar_tarjetas() -> None:
+            # Solo se ven las tarifas de los tipos que juega la liga
+            for tipo, t in tarjetas_tipo.items():
+                t.visible = tipo in tipos_liga.tipos
+
+        mostrar_tarjetas()
 
         def leer(tipo: str) -> tuple[int | None, dict[str, int]] | None:
             arbitraje, campos = montos[tipo]
@@ -957,6 +1046,7 @@ class PanelTarifas:
                     if tipo != principal:
                         self.app.ligas.configurar_tarifas_tipo(self.liga.id, tipo, tarifas)
                     self.app.ligas.configurar_cuota_equipo(self.liga.id, tipo, cuota)
+                self.app.ligas.configurar_modalidades(self.liga.id, tipos_liga.otras)
             except ErrorValidacion as e:
                 error.value, error.visible = e.mensaje, True
                 self.page.update()
@@ -964,15 +1054,16 @@ class PanelTarifas:
             error.visible = False
             self.liga.posiciones_defecto = ",".join(c for c, chk in casillas.items() if chk.value)
             self.liga.modalidad = principal
+            self.liga.otras_modalidades = ",".join(tipos_liga.otras) or None
             avisar(self.page, "Posiciones y tarifas guardadas.")
 
         controles = [
             ft.Text(
-                "Elige el tipo de partido principal y marca las posiciones que lleva un partido normal de esta "
-                "liga. Al crear cada partido se precargan y ahí puedes cambiarlas.",
+                "Marca los tipos de partido que se juegan en esta liga y las posiciones que lleva un partido "
+                "normal del tipo principal. Al crear cada partido se precargan y ahí puedes cambiarlas.",
                 color=ft.Colors.ON_SURFACE_VARIANT,
             ),
-            modalidad,
+            tipos_liga.control,
             tarjeta(ft.DataTable(
                 columns=[ft.DataColumn(ft.Text("Posición")), ft.DataColumn(ft.Text("Va por defecto"))],
                 rows=filas,
@@ -983,7 +1074,7 @@ class PanelTarifas:
                 "$450 cada uno). «Pago al árbitro» es lo que gana el árbitro por partido en cada posición.",
                 color=ft.Colors.ON_SURFACE_VARIANT,
             ),
-            *tarjetas_tipo,
+            *tarjetas_tipo.values(),
             error,
         ]
         if editable:

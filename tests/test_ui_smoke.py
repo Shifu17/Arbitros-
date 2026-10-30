@@ -380,3 +380,45 @@ def test_tarifas_por_tipo_de_partido(app):
     boton.on_click(None)
     assert app.ligas.cuota_equipo(liga.id, "futbol_7") == 30000
     assert app.ligas.tarifas(liga.id)["central"] == 30000
+
+
+def test_liga_con_varios_tipos_de_partido(app):
+    liga = app.ligas.crear(DatosLiga(nombre="Liga Mixta", posiciones=["central"], otras_modalidades=["bardas"]))
+    app.ligas.equipos.crear_varios(liga.id, "Tigres\nPumas")
+    app.ligas.campos.crear(liga.id, "Campo 1")
+    bardas = app.ligas.campos.crear(liga.id, "Bardas Norte", modalidad="bardas")
+    liga = app.ligas.obtener(liga.id)
+
+    # Campos: cada cancha puede tener su tipo
+    panel = ligas.PanelCampos(app, liga)
+    validar_arbol(panel.construir())
+    assert [c.data for c in panel.extra_alta] == ["modalidad"]
+    panel._editar(next(c for c in app.ligas.campos.listar(liga.id) if c.id == bardas.id))
+    tipo = next(c for c in app.page.dialogos[-1].content.controls if c.data == "modalidad")
+    assert tipo.value == "bardas" and {o.key for o in tipo.options} == {"cualquiera", "futbol_11", "bardas"}
+
+    # Tarifas: solo se ven los tipos que juega; marcar Fútbol 7 lo agrega
+    panel = ligas.PanelTarifas(app, liga).construir()
+    casillas_tipo = [c for c in _controles(panel, ft.Checkbox) if c.label == "Fútbol 7"]
+    casillas_tipo[0].value = True
+    casillas_tipo[0].on_change(SimpleNamespace(control=casillas_tipo[0]))
+    validar_arbol(panel)
+    boton = next(b for b in _controles(panel, ft.FilledButton) if b.content == "Guardar")
+    boton.on_click(None)
+    assert app.ligas.obtener(liga.id).lista_modalidades == ["futbol_11", "futbol_7", "bardas"]
+
+    # Partido: al elegir la cancha de bardas el tipo cambia solo
+    shell = Shell(app)
+    shell.construir()
+    vj = jornadas.VistaJornadas(app, shell)
+    vj.construir()
+    vj.cambiar_liga(liga.id)
+    j = app.jornadas.crear(liga.id, date(2026, 10, 31))
+    vj.dialogo_partido(j.id)
+    dialogo = app.page.dialogos[-1]
+    campo = next(d for d in _controles(dialogo, ft.Dropdown) if d.label == "Campo *")
+    tipo = next(d for d in _controles(dialogo, ft.Dropdown) if d.label == "Tipo de partido")
+    assert tipo.value == "futbol_11"
+    campo.value = str(bardas.id)
+    campo.on_select(None)
+    assert tipo.value == "bardas"

@@ -481,7 +481,8 @@ class VistaJornadas:
         )
         # Fútbol 11 / Fútbol 7 / Bardas: al cambiarlo solo aparecen sus árbitros y se marcan los necesarios
         modalidad = selector_modalidad(tipo_inicial, casillas, self.page, al_cambiar=lambda _: cambiar_tipo(),
-                                       width=230)
+                                       width=230, tipos=self.liga.lista_modalidades)
+        tipo_de_campo = {str(c.id): c.modalidad for c in campos_liga if c.modalidad}
         estado = ft.Dropdown(
             label="Estado",
             value=partido.estado if partido else ESTADO_PROGRAMADO,
@@ -531,8 +532,20 @@ class VistaJornadas:
                 mostrar_avisos(panel_avisos, [])
                 self.page.update()
 
-        for c in (local, visitante, campo):
+        for c in (local, visitante):
             c.on_select = al_cambiar
+
+        def cambiar_campo(_):
+            # Una cancha con tipo propio (p. ej. de bardas) pone ese tipo de partido y sus árbitros
+            tipo = tipo_de_campo.get(campo.value)
+            if tipo and tipo != modalidad.value:
+                modalidad.value = tipo
+                mostrar_posiciones_de(casillas, tipo, marcar_defecto=True)
+                actualizar_equipos()
+            al_cambiar()
+            self.page.update()
+
+        campo.on_select = cambiar_campo
         fecha.campo.on_change = al_cambiar
         hora.campo.on_change = al_cambiar
 

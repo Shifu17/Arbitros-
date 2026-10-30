@@ -97,6 +97,12 @@ def csv_a_posiciones(csv: str | None) -> list[str]:
     return [p for p in (csv or "").split(",") if p in POSICIONES]
 
 
+def modalidades_a_csv(modalidades) -> str:
+    """CSV en el orden de MODALIDADES, descartando claves desconocidas."""
+    elegidas = set(modalidades)
+    return ",".join(m for m in MODALIDADES if m in elegidas)
+
+
 class Base(DeclarativeBase):
     pass
 
@@ -154,6 +160,8 @@ class Liga(Base):
     nombre: Mapped[str] = mapped_column(String(120), unique=True)
     tipo: Mapped[str] = mapped_column(String(20), default=TIPO_LIGA)
     modalidad: Mapped[str] = mapped_column(String(20), default=FUTBOL_11, server_default=FUTBOL_11)
+    # Otros tipos de partido que también juega (CSV, sin el principal)
+    otras_modalidades: Mapped[str | None] = mapped_column(String(60))
     posiciones_defecto: Mapped[str] = mapped_column(String(100), default="central")
     activa: Mapped[bool] = mapped_column(Boolean, default=True)
     notas: Mapped[str | None] = mapped_column(Text)
@@ -168,6 +176,13 @@ class Liga(Base):
     @property
     def lista_posiciones(self) -> list[str]:
         return csv_a_posiciones(self.posiciones_defecto)
+
+    @property
+    def lista_modalidades(self) -> list[str]:
+        """Todos los tipos de partido que juega: el principal primero."""
+        principal = self.modalidad or FUTBOL_11
+        otras = [m for m in (self.otras_modalidades or "").split(",") if m in MODALIDADES and m != principal]
+        return [principal, *otras]
 
 
 class Categoria(Base):
@@ -220,6 +235,8 @@ class Campo(Base):
     liga_id: Mapped[int] = mapped_column(ForeignKey("ligas.id", ondelete="CASCADE"), index=True)
     nombre: Mapped[str] = mapped_column(String(120))
     direccion: Mapped[str | None] = mapped_column(String(250))
+    # Tipo de partido que se juega en esta cancha; None = cualquiera
+    modalidad: Mapped[str | None] = mapped_column(String(20))
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
