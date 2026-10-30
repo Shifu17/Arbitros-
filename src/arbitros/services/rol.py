@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from urllib.parse import quote
 
+from arbitros import colegios
 from arbitros.db.database import Database
 from arbitros.db.models import FUTBOL_11, POSICIONES, Arbitro, Jornada, Liga, nombre_modalidad
 from arbitros.services.arbitros import enlace_whatsapp
@@ -155,7 +156,7 @@ class RolService:
         return "\n".join(lineas).strip()
 
     def _encabezado(self, rol: RolJornada, opciones: OpcionesRol) -> list[str]:
-        lineas = [f"⚽ *{rol.liga.nombre.upper()}*", f"📋 *Rol arbitral · {rol.titulo}*"]
+        lineas = [f"⚽ *{rol.liga.nombre.upper()}*", f"📋 *{colegios.activo().titulo_rol} · {rol.titulo}*"]
         if opciones.categoria_id:
             categorias = {p.categoria for p in rol.partidos if p.categoria}
             if categorias:

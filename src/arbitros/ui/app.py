@@ -27,6 +27,7 @@ from arbitros.services.cedulas import CedulaService
 from arbitros.services.cobros import CobroService
 from arbitros.services.configuracion import ConfiguracionService
 from arbitros.services.disponibilidad import DisponibilidadService
+from arbitros.services.imagenes import ImagenService
 from arbitros.services.jornadas import JornadaService
 from arbitros.services.ligas import LigaService
 from arbitros.services.pagos import PagoService
@@ -70,6 +71,7 @@ class App:
         self.rol = RolService(db, self.jornadas, self.asignaciones)
         self.pagos = PagoService(db, self.ligas)
         self.cedulas = CedulaService(db, rutas)
+        self.imagenes = ImagenService(db, rutas)
         self.cobros = CobroService(db, self.ligas)
         self.reportes = ReporteService(self.pagos, self.cedulas, self.cobros)
         self._aplicar_marca()

@@ -40,7 +40,7 @@ def ctx(db):
     asig.asignar(p1.id, "central", juan.id, forzar=True)
     asig.asignar(p1.id, "asistente_1", ana.id, forzar=True)
     asig.asignar(p3.id, "central", juan.id, forzar=True)
-    return dict(rol=rol, jornadas=jornadas, asig=asig, j=j, p1=p1, p2=p2, p3=p3, juan=juan, ana=ana, oro=oro)
+    return dict(rol=rol, jornadas=jornadas, asig=asig, j=j, p1=p1, p2=p2, p3=p3, juan=juan, ana=ana, oro=oro, liga=liga)
 
 
 def test_texto_por_campo(ctx):
@@ -138,6 +138,62 @@ def test_imagen_con_la_marca_del_colegio(ctx):
     imagen = Image.open(BytesIO(generar_png(datos, OpcionesRol()))).convert("RGB")
     # El encabezado se pinta con el azul marino de Saltillo, no con el negro de Coahuila
     assert imagen.getpixel((60, 60)) == (0x0B, 0x1F, 0x4B)
+
+
+def test_designacion_con_fotos_y_logo_de_liga(ctx, rutas, tmp_path):
+    from io import BytesIO
+
+    from PIL import Image
+
+    from arbitros import colegios
+    from arbitros.services.imagenes import ImagenService
+
+    rojo, verde = (220, 20, 20), (20, 160, 60)
+    Image.new("RGB", (600, 800), rojo).save(tmp_path / "juan.jpg")
+    Image.new("RGB", (300, 300), verde).save(tmp_path / "liga.png")
+    imagenes = ImagenService(ctx["rol"].db, rutas)
+    imagenes.guardar_foto(ctx["juan"].id, tmp_path / "juan.jpg")
+    imagenes.guardar_logo(ctx["liga"].id, tmp_path / "liga.png")
+
+    def colores(png: bytes) -> set:
+        return {c for _, c in Image.open(BytesIO(png)).convert("RGB").getcolors(1 << 24)}
+
+    # Coahuila: sigue siendo «Rol arbitral», sin fotos ni logo de la liga
+    datos = ctx["rol"].datos(ctx["j"].id, OpcionesRol())
+    assert "Rol arbitral" in ctx["rol"].texto(ctx["j"].id, OpcionesRol())
+    assert not {rojo, verde} & colores(generar_png(datos, OpcionesRol(), rutas.documentos))
+
+    colegios.activar(colegios.SALTILLO)
+    datos = ctx["rol"].datos(ctx["j"].id, OpcionesRol())
+    texto = ctx["rol"].texto(ctx["j"].id, OpcionesRol())
+    assert "Designación arbitral" in texto and "Rol arbitral" not in texto
+    assert {rojo, verde} <= colores(generar_png(datos, OpcionesRol(), rutas.documentos))
+    # Sin la carpeta de documentos (o si se borran las imágenes) sale con iniciales y el logo del colegio
+    assert generar_png(datos, OpcionesRol(agrupar=AGRUPAR_HORA))[:4] == b"\x89PNG"
+
+
+def test_fotos_y_logos(db, rutas, tmp_path):
+    from PIL import Image
+
+    from arbitros.services.errores import ErrorValidacion
+    from arbitros.services.imagenes import ImagenService
+
+    arbitro = ArbitroService(db).crear(DatosArbitro(nombre="Ana López", telefono="3322222222"))
+    imagenes = ImagenService(db, rutas)
+    (tmp_path / "no_es_imagen.png").write_text("hola")
+    with pytest.raises(ErrorValidacion):
+        imagenes.guardar_foto(arbitro.id, tmp_path / "no_es_imagen.png")
+    with pytest.raises(ErrorValidacion):
+        imagenes.guardar_foto(arbitro.id, tmp_path / "foto.gif")
+
+    Image.new("RGB", (800, 600), "blue").save(tmp_path / "foto.jpg")
+    imagenes.guardar_foto(arbitro.id, tmp_path / "foto.jpg")
+    arbitro = ArbitroService(db).obtener(arbitro.id)
+    ruta = imagenes.ruta(arbitro.foto)
+    assert ruta and ruta.is_relative_to(rutas.documentos) and Image.open(ruta).size == (400, 400)
+
+    imagenes.quitar_foto(arbitro.id)
+    assert ArbitroService(db).obtener(arbitro.id).foto is None and not ruta.exists()
 
 
 def test_partido_de_bardas_en_rol(ctx):

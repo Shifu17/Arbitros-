@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from arbitros import colegios
 from arbitros.db.models import POSICIONES
@@ -28,6 +28,9 @@ ROJO = (198, 40, 40)
 NOTA = (255, 248, 225)
 BLANCO = (255, 255, 255)
 FONDO = (245, 245, 245)
+SIN_FOTO = (225, 228, 235)
+SIN_ASIGNAR = (251, 213, 213)
+TAM_FOTO = 76
 
 
 def _rgb(hexa: str) -> tuple[int, int, int]:
@@ -42,11 +45,31 @@ class Marca:
     fondo: tuple[int, int, int]
     acento: tuple[int, int, int]
     primario: tuple[int, int, int]
+    titulo_rol: str = "Rol arbitral"
+    fotos_arbitros: bool = False
+    logo_liga: bool = False
 
 
 def marca() -> Marca:
     c = colegios.activo()
-    return Marca(c.nombre, c.ruta_logo, _rgb(c.fondo), _rgb(c.acento), _rgb(c.primario))
+    return Marca(c.nombre, c.ruta_logo, _rgb(c.fondo), _rgb(c.acento), _rgb(c.primario),
+                 c.titulo_rol, c.fotos_arbitros, c.logo_liga)
+
+
+def _foto_redonda(ruta: Path, lado: int) -> Image.Image | None:
+    try:
+        foto = ImageOps.fit(Image.open(ruta).convert("RGBA"), (lado, lado), Image.LANCZOS)
+    except OSError:
+        return None
+    # Máscara dibujada al cuádruple y reducida para que el borde no se vea dentado
+    mascara = Image.new("L", (lado * 4, lado * 4))
+    ImageDraw.Draw(mascara).ellipse((0, 0, lado * 4 - 1, lado * 4 - 1), fill=255)
+    foto.putalpha(mascara.resize((lado, lado), Image.LANCZOS))
+    return foto
+
+
+def _iniciales(nombre: str) -> str:
+    return "".join(p[0] for p in nombre.split()[:2]).upper()
 
 
 def _fuente(negrita: bool, tamano: int) -> ImageFont.FreeTypeFont:
@@ -112,18 +135,24 @@ class _Lienzo:
         if self.d:
             self.d.ellipse((x, y, x + 12, y + 12), fill=color)
 
+    def circulo_con_texto(self, x: int, y: int, lado: int, relleno, texto: str, fuente, color) -> None:
+        if self.d:
+            self.d.ellipse((x, y, x + lado, y + lado), fill=relleno)
+            self.d.text((x + lado / 2, y + lado / 2), texto, font=fuente, fill=color, anchor="mm")
 
-def generar_png(rol: RolJornada, opciones: OpcionesRol) -> bytes:
+
+def generar_png(rol: RolJornada, opciones: OpcionesRol, documentos: Path | None = None) -> bytes:
+    """`documentos` es la carpeta donde están la foto de cada árbitro y el logo de la liga."""
     medidor = ImageDraw.Draw(Image.new("RGB", (1, 1)))
-    alto = _componer(_Lienzo(None, medidor), rol, opciones)
+    alto = _componer(_Lienzo(None, medidor), rol, opciones, documentos)
     imagen = Image.new("RGB", (ANCHO, alto), FONDO)
-    _componer(_Lienzo(ImageDraw.Draw(imagen), medidor, imagen), rol, opciones)
+    _componer(_Lienzo(ImageDraw.Draw(imagen), medidor, imagen), rol, opciones, documentos)
     salida = io.BytesIO()
     imagen.save(salida, format="PNG", optimize=True)
     return salida.getvalue()
 
 
-def _componer(l: _Lienzo, rol: RolJornada, opciones: OpcionesRol) -> int:
+def _componer(l: _Lienzo, rol: RolJornada, opciones: OpcionesRol, documentos: Path | None = None) -> int:
     f_titulo, f_sub, f_grupo = _fuente(True, 46), _fuente(False, 30), _fuente(True, 30)
     f_hora, f_equipos, f_normal, f_chico = _fuente(True, 38), _fuente(True, 32), _fuente(False, 27), _fuente(False, 22)
     util = ANCHO - 2 * MARGEN
@@ -131,7 +160,7 @@ def _componer(l: _Lienzo, rol: RolJornada, opciones: OpcionesRol) -> int:
 
     # Encabezado: se mide primero para dibujar el fondo verde detrás del texto
     fechas = rol.fechas
-    lineas_enc = [(rol.liga.nombre.upper(), f_titulo), (f"Rol arbitral · {rol.titulo}", f_sub)]
+    lineas_enc = [(rol.liga.nombre.upper(), f_titulo), (f"{m.titulo_rol} · {rol.titulo}", f_sub)]
     if fechas:
         lineas_enc.append((fecha_larga(fechas[0]) if len(fechas) == 1
                            else f"{fecha_larga(fechas[0])} al {fecha_larga(fechas[-1]).lower()}", f_sub))
@@ -154,8 +183,11 @@ def _componer(l: _Lienzo, rol: RolJornada, opciones: OpcionesRol) -> int:
     l.caja((MARGEN, y, ANCHO - MARGEN, y + alto_enc), m.fondo)
     if l.d:
         encabezado(l, y)
-        if m.logo.exists():
-            logo = Image.open(m.logo).convert("RGBA").resize((tam_logo, tam_logo), Image.LANCZOS)
+        ruta_logo = m.logo
+        if m.logo_liga and documentos and rol.liga.logo and (documentos / rol.liga.logo).is_file():
+            ruta_logo = documentos / rol.liga.logo
+        if ruta_logo.exists():
+            logo = Image.open(ruta_logo).convert("RGBA").resize((tam_logo, tam_logo), Image.LANCZOS)
             l.imagen(logo, MARGEN + 32, y + (alto_enc - tam_logo) // 2)
     # Franja con los dos colores del logo
     mitad = ANCHO // 2
@@ -166,6 +198,8 @@ def _componer(l: _Lienzo, rol: RolJornada, opciones: OpcionesRol) -> int:
     activos = [p for p in rol.partidos if p.se_juega]
     varias_fechas = len({p.fecha for p in activos}) > 1
     por_hora = opciones.agrupar == AGRUPAR_HORA
+    # None = sin fotos; con fotos, al medir basta un diccionario vacío (miden igual que las iniciales)
+    fotos = (_cargar_fotos(activos, documentos) if l.d else {}) if m.fotos_arbitros else None
     if not rol.partidos:
         y += l.texto(MARGEN, y, "No hay partidos para mostrar.", f_normal, GRIS, util) + 24
 
@@ -186,7 +220,7 @@ def _componer(l: _Lienzo, rol: RolJornada, opciones: OpcionesRol) -> int:
             l.texto(MARGEN + 24, y + 10, titulo, f_grupo, NEGRO, util - 40)
             y += alto_titulo + 20 + 14
             for p in partidos:
-                y += _tarjeta(l, p, y, opciones, por_hora, f_hora, f_equipos, f_normal, f_chico) + 14
+                y += _tarjeta(l, p, y, opciones, por_hora, f_hora, f_equipos, f_normal, f_chico, fotos) + 14
             y += 14
 
     cancelados = [p for p in rol.partidos if not p.se_juega]
@@ -213,9 +247,22 @@ def _componer(l: _Lienzo, rol: RolJornada, opciones: OpcionesRol) -> int:
     return y + MARGEN
 
 
+def _cargar_fotos(partidos: list[PartidoEnRol], documentos: Path | None) -> dict[int, Image.Image]:
+    """Foto redonda de cada árbitro del rol que tenga foto guardada (por id)."""
+    fotos = {}
+    for p in partidos:
+        for a in p.arbitros:
+            arb = a.arbitro
+            if arb and arb.id not in fotos and arb.foto and documentos and (documentos / arb.foto).is_file():
+                foto = _foto_redonda(documentos / arb.foto, TAM_FOTO)
+                if foto:
+                    fotos[arb.id] = foto
+    return fotos
+
+
 def _tarjeta(l: _Lienzo, p: PartidoEnRol, y: int, opciones: OpcionesRol, por_hora: bool,
-             f_hora, f_equipos, f_normal, f_chico) -> int:
-    """Tarjeta de un partido. Devuelve su altura."""
+             f_hora, f_equipos, f_normal, f_chico, fotos: dict[int, Image.Image] | None = None) -> int:
+    """Tarjeta de un partido. Devuelve su altura. Con `fotos` (no None) cada árbitro lleva su foto."""
     x0, x1 = MARGEN, ANCHO - MARGEN
     col_izq = 150
     ancho_der = x1 - x0 - col_izq - 48
@@ -232,6 +279,8 @@ def _tarjeta(l: _Lienzo, p: PartidoEnRol, y: int, opciones: OpcionesRol, por_hor
         if subtitulo:
             yy += lienzo.texto(xd, yy, subtitulo, f_chico, GRIS, ancho_der)
         yy += 6
+        if fotos is not None:
+            return _arbitros_con_foto(lienzo, p, xd, yy, ancho_der, opciones, fotos, f_normal, f_chico) + 20 - y
         for a in p.arbitros:
             falta = a.arbitro is None
             lienzo.punto(xd, yy + 14, ROJO if falta else NEGRO)
@@ -244,3 +293,28 @@ def _tarjeta(l: _Lienzo, p: PartidoEnRol, y: int, opciones: OpcionesRol, por_hor
     if l.d:
         contenido(l)
     return alto
+
+
+def _arbitros_con_foto(l: _Lienzo, p: PartidoEnRol, x: int, y: int, ancho: int, opciones: OpcionesRol,
+                       fotos: dict[int, Image.Image], f_normal, f_chico) -> int:
+    """Un renglón por árbitro: foto redonda (o sus iniciales), nombre y posición. Devuelve la nueva y."""
+    f_iniciales = _fuente(True, 28)
+    x_texto = x + TAM_FOTO + 18
+    ancho_texto = ancho - TAM_FOTO - 18
+    for a in p.arbitros:
+        falta = a.arbitro is None
+        foto = None if falta else fotos.get(a.arbitro.id)
+        if foto:
+            l.imagen(foto, x, y)
+        elif falta:
+            l.circulo_con_texto(x, y, TAM_FOTO, SIN_ASIGNAR, "?", f_iniciales, ROJO)
+        else:
+            l.circulo_con_texto(x, y, TAM_FOTO, SIN_FOTO, _iniciales(a.arbitro.nombre), f_iniciales, GRIS)
+        nombre = a.nombre(opciones.usar_apodos)
+        alto_texto = (_Lienzo(None, l.medidor).texto(0, 0, nombre, f_normal, TEXTO, ancho_texto)
+                      + int(f_chico.size * 1.25))
+        yy = y + max(0, (TAM_FOTO - alto_texto) // 2)
+        yy += l.texto(x_texto, yy, nombre, f_normal, ROJO if falta else TEXTO, ancho_texto)
+        l.texto(x_texto, yy, POSICIONES[a.posicion], f_chico, GRIS, ancho_texto)
+        y += max(TAM_FOTO, alto_texto) + 12
+    return y

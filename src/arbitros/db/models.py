@@ -137,6 +137,8 @@ class Arbitro(Base):
     categoria: Mapped[str | None] = mapped_column(String(60))
     activo: Mapped[bool] = mapped_column(Boolean, default=True)
     notas: Mapped[str | None] = mapped_column(Text)
+    # Ruta relativa a la carpeta de documentos (ver services.imagenes)
+    foto: Mapped[str | None] = mapped_column(String(255))
     creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     actualizado_en: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
@@ -155,6 +157,8 @@ class Liga(Base):
     posiciones_defecto: Mapped[str] = mapped_column(String(100), default="central")
     activa: Mapped[bool] = mapped_column(Boolean, default=True)
     notas: Mapped[str | None] = mapped_column(Text)
+    # Ruta relativa a la carpeta de documentos (ver services.imagenes)
+    logo: Mapped[str | None] = mapped_column(String(255))
     creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     @property

@@ -254,7 +254,7 @@ class VistaRol:
             # La imagen se organiza por campo aunque el texto esté por árbitro
             opciones = OpcionesRol(AGRUPAR_CAMPO, opciones.categoria_id, opciones.usar_apodos,
                                    opciones.incluir_cancelados, opciones.nota)
-        return generar_png(self.app.rol.datos(self.jornada_id, opciones), opciones)
+        return generar_png(self.app.rol.datos(self.jornada_id, opciones), opciones, self.app.rutas.documentos)
 
     def _avisos_estado(self, datos) -> list[ft.Control]:
         controles = []

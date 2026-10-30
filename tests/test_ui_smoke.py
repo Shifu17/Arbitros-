@@ -167,6 +167,20 @@ def test_elegir_colegio(tmp_path):
     a.auth.crear_admin_inicial("admin", "Admin Saltillo", "secreta1")
     a.entrar(a.auth.autenticar("admin", "secreta1"))
     validar_arbol(a.page.controls[-1])
+    # Saltillo pide foto del árbitro y logo de la liga (para la designación)
+    from PIL import Image
+
+    juan = a.arbitros.crear(DatosArbitro(nombre="Juan Pérez", telefono="3312345678"))
+    Image.new("RGB", (50, 50), "red").save(tmp_path / "foto.png")
+    a.imagenes.guardar_foto(juan.id, tmp_path / "foto.png")
+    vista = arbitros.VistaArbitros(a)
+    vista.construir()
+    vista.abrir_formulario(a.arbitros.obtener(juan.id))
+    vista.abrir_formulario()
+    liga = a.ligas.crear(DatosLiga(nombre="Liga Saltillo", posiciones=["central"]))
+    ligas.VistaLigas(a, Shell(a)).dialogo_editar(liga)
+    a.page.update()
+    assert len(a.page.dialogos) == 3
     # Coahuila sigue usando la carpeta de siempre y no ve los usuarios de Saltillo
     a.abrir_colegio(colegios.COAHUILA)
     assert a.rutas.base == tmp_path and not a.auth.hay_usuarios()

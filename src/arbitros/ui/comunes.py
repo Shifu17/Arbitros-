@@ -1,9 +1,12 @@
 """Piezas de interfaz reutilizadas por todas las pantallas."""
 
 import inspect
+import io
 from datetime import date, datetime, time, timedelta
+from pathlib import Path
 
 import flet as ft
+from PIL import Image, ImageOps
 
 from arbitros.ui import filtros
 
@@ -136,6 +139,93 @@ def texto_a_fecha(texto: str) -> date | None:
         except ValueError:
             pass
     return None
+
+
+class SelectorImagen:
+    """Vista previa con botones Elegir / Quitar para una foto o un logo.
+
+    No guarda nada al elegir: el formulario llama a `aplicar()` después de guardar el
+    registro (así también sirve al crear uno nuevo, que aún no tiene id).
+    """
+
+    LADO = 96
+
+    def __init__(self, app, titulo: str, actual: Path | None, redonda: bool, icono, editable: bool = True):
+        self.app = app
+        self.titulo = titulo
+        self.redonda = redonda
+        self.elegida: Path | None = None
+        self.quitada = False
+        self.icono = icono
+        self.vista = ft.Container(
+            width=self.LADO, height=self.LADO, border_radius=self.LADO // 2 if redonda else 12,
+            bgcolor=ft.Colors.SURFACE_CONTAINER_HIGH, clip_behavior=ft.ClipBehavior.ANTI_ALIAS,
+            alignment=ft.Alignment.CENTER,
+        )
+        self.boton_quitar = ft.TextButton("Quitar", icon=ft.Icons.DELETE_OUTLINE, on_click=self._quitar,
+                                          visible=editable and actual is not None)
+        self.error = ft.Text("", color=ft.Colors.ERROR, size=12, visible=False)
+        self._mostrar(actual)
+        botones = ft.Row([ft.OutlinedButton("Elegir imagen", icon=ft.Icons.IMAGE, on_click=self._elegir),
+                          self.boton_quitar], wrap=True, spacing=4, visible=editable)
+        self.control = ft.Row(
+            [self.vista, ft.Column([ft.Text(titulo, weight=ft.FontWeight.W_500), botones, self.error],
+                                   tight=True, spacing=6, expand=True)],
+            spacing=16,
+        )
+
+    def _mostrar(self, ruta: Path | None) -> None:
+        previa = _vista_previa(ruta, self.LADO * 2, recortar=self.redonda) if ruta else None
+        self.vista.content = (ft.Image(src=previa, width=self.LADO, height=self.LADO, fit=ft.BoxFit.COVER)
+                              if previa else ft.Icon(self.icono, size=44, color=ft.Colors.ON_SURFACE_VARIANT))
+
+    async def _elegir(self, _) -> None:
+        from arbitros.services.imagenes import EXTENSIONES
+
+        archivos = await self.app.selector_archivos.pick_files(
+            dialog_title=self.titulo, file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=EXTENSIONES)
+        rutas = [Path(a.path) for a in archivos or [] if a.path]
+        if not rutas:
+            return
+        if _vista_previa(rutas[0], 8) is None:
+            self.error.value, self.error.visible = "No se pudo leer esa imagen.", True
+        else:
+            self.elegida, self.quitada = rutas[0], False
+            self.error.visible = False
+            self.boton_quitar.visible = True
+            self._mostrar(rutas[0])
+        self.app.page.update()
+
+    def _quitar(self, _) -> None:
+        self.elegida, self.quitada = None, True
+        self.boton_quitar.visible = False
+        self._mostrar(None)
+        self.app.page.update()
+
+    def aplicar(self, guardar, quitar) -> None:
+        """Llama a `guardar(ruta)` o `quitar()` según lo que se haya hecho en el formulario."""
+        if self.elegida:
+            guardar(self.elegida)
+        elif self.quitada:
+            quitar()
+
+
+def _vista_previa(ruta: Path, lado: int, recortar: bool = False) -> bytes | None:
+    """PNG pequeño de la imagen (ya girada según su EXIF), o None si no se puede leer."""
+    from arbitros.services.errores import ErrorValidacion
+    from arbitros.services.imagenes import abrir_imagen
+
+    try:
+        im = abrir_imagen(ruta)
+    except ErrorValidacion:
+        return None
+    if recortar:
+        im = ImageOps.fit(im, (lado, lado), Image.LANCZOS, centering=(0.5, 0.4))
+    else:
+        im.thumbnail((lado, lado), Image.LANCZOS)
+    salida = io.BytesIO()
+    im.save(salida, format="PNG")
+    return salida.getvalue()
 
 
 class CampoFecha:

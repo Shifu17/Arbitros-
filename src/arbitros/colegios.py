@@ -28,6 +28,9 @@ class Colegio:
     # Subcarpeta dentro de la carpeta de datos. None = la carpeta misma (datos que ya
     # existían antes de haber varios colegios).
     carpeta: str | None
+    titulo_rol: str = "Rol arbitral"  # encabezado del rol (texto de WhatsApp e imagen)
+    fotos_arbitros: bool = False  # foto de cada árbitro en la imagen del rol
+    logo_liga: bool = False  # la imagen del rol lleva el logo de la liga en vez del del colegio
 
     @property
     def ruta_logo(self) -> Path:
@@ -67,6 +70,9 @@ SALTILLO = Colegio(
     logo="logo_saltillo.png",
     icono="logo_saltillo.ico",
     carpeta="saltillo",
+    titulo_rol="Designación arbitral",
+    fotos_arbitros=True,
+    logo_liga=True,
 )
 
 COLEGIOS = (COAHUILA, SALTILLO)

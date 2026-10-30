@@ -4,6 +4,8 @@ from datetime import timedelta
 
 import flet as ft
 
+from arbitros import colegios
+
 from arbitros.ui import filtros
 
 from arbitros.db.models import (
@@ -22,6 +24,7 @@ from arbitros.services.dinero import a_centavos, formatear_monto, monto_editable
 from arbitros.services.errores import ErrorValidacion
 from arbitros.services.ligas import MAX_DIAS_TORNEO, Catalogo, DatosLiga, ResumenLiga
 from arbitros.ui.comunes import (
+    SelectorImagen,
     ANCHO_DIALOGO,
     CampoFecha,
     avisar,
@@ -350,7 +353,9 @@ class VistaLigas:
         ]
         if self.app.es_admin:
             acciones += [
-                ft.IconButton(ft.Icons.EDIT, tooltip="Editar nombre y notas", on_click=lambda _: self.dialogo_editar(liga)),
+                ft.IconButton(ft.Icons.EDIT, on_click=lambda _: self.dialogo_editar(liga),
+                              tooltip="Editar nombre, logo y notas" if colegios.activo().logo_liga
+                              else "Editar nombre y notas"),
                 ft.IconButton(
                     ft.Icons.ARCHIVE if liga.activa else ft.Icons.UNARCHIVE,
                     tooltip="Archivar" if liga.activa else "Reactivar",
@@ -403,6 +408,10 @@ class VistaLigas:
     def dialogo_editar(self, liga: Liga) -> None:
         nombre = ft.TextField(label="Nombre *", value=liga.nombre, autofocus=True)
         notas = ft.TextField(label="Notas", value=liga.notas or "", multiline=True, min_lines=1, max_lines=3)
+        logo = None
+        if colegios.activo().logo_liga:
+            logo = SelectorImagen(self.app, "Logo (sale en la designación)", self.app.imagenes.ruta(liga.logo),
+                                  redonda=False, icono=ft.Icons.SHIELD)
 
         def guardar(_):
             try:
@@ -411,6 +420,12 @@ class VistaLigas:
                 mostrar_errores({"nombre": nombre}, e.campos)
                 self.page.update()
                 return
+            if logo:
+                try:
+                    logo.aplicar(lambda ruta: self.app.imagenes.guardar_logo(liga.id, ruta),
+                                 lambda: self.app.imagenes.quitar_logo(liga.id))
+                except ErrorValidacion as e:
+                    avisar(self.page, f"No se guardó el logo: {e.mensaje}", error=True)
             self.page.pop_dialog()
             self.mostrar_detalle(liga.id)
 
@@ -418,7 +433,8 @@ class VistaLigas:
             ft.AlertDialog(
                 modal=True,
                 title=ft.Text("Editar"),
-                content=ft.Column([nombre, notas], tight=True, spacing=12, width=ANCHO_DIALOGO),
+                content=ft.Column([*([logo.control] if logo else []), nombre, notas], tight=True, spacing=12,
+                                  width=ANCHO_DIALOGO),
                 actions=[
                     ft.TextButton("Cancelar", on_click=lambda _: self.page.pop_dialog()),
                     ft.FilledButton("Guardar", icon=ft.Icons.SAVE, on_click=guardar),

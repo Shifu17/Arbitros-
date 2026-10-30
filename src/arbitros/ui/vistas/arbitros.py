@@ -1,5 +1,7 @@
 import flet as ft
 
+from arbitros import colegios
+
 from arbitros.ui import filtros
 
 from arbitros.db.models import POSICIONES, Arbitro
@@ -14,6 +16,7 @@ from arbitros.services.arbitros import (
 from arbitros.services.dinero import formatear_monto
 from arbitros.services.errores import ErrorValidacion
 from arbitros.ui.comunes import (
+    SelectorImagen,
     ANCHO_DIALOGO,
     avisar,
     confirmar,
@@ -225,6 +228,11 @@ class VistaArbitros:
         campos = {"nombre": nombre, "apodo": apodo, "telefono": telefono}
         for c in (nombre, apodo, telefono, categoria, notas, activo):
             c.disabled = not editable
+        foto = None
+        if colegios.activo().fotos_arbitros:
+            foto = SelectorImagen(self.app, "Foto (sale en la designación)",
+                                  self.app.imagenes.ruta(arbitro.foto) if arbitro else None,
+                                  redonda=True, icono=ft.Icons.PERSON, editable=editable)
 
         def datos() -> DatosArbitro:
             return DatosArbitro(
@@ -246,6 +254,12 @@ class VistaArbitros:
                 mostrar_errores(campos, e.campos)
                 self.page.update()
                 return
+            if foto:
+                try:
+                    foto.aplicar(lambda ruta: self.app.imagenes.guardar_foto(guardado.id, ruta),
+                                 lambda: self.app.imagenes.quitar_foto(guardado.id))
+                except ErrorValidacion as e:
+                    avisar(self.page, f"{guardado.nombre} se guardó, pero no su foto: {e.mensaje}", error=True)
             self.page.pop_dialog()
             avisar(self.page, f"{guardado.nombre} guardado.")
             self.refrescar()
@@ -266,7 +280,7 @@ class VistaArbitros:
                 modal=True,
                 title=ft.Text(titulo),
                 content=ft.Column(
-                    [nombre, apodo, telefono, categoria, notas, activo],
+                    [*([foto.control] if foto else []), nombre, apodo, telefono, categoria, notas, activo],
                     tight=True,
                     spacing=14,
                     width=ANCHO_DIALOGO,
