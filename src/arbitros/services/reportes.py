@@ -8,7 +8,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from arbitros.config import ORGANIZACION
+from arbitros import colegios
 from arbitros.db.models import ESTADOS_PARTIDO, FORMAS_PAGO, POSICIONES
 from arbitros.services.cedulas import NOMBRES_ESTADO, PENDIENTE, CedulaService
 from arbitros.services.cobros import CobroService
@@ -139,12 +139,9 @@ def _p(centavos: int) -> float:
     return round(centavos / 100, 2)
 
 
-ROJO = "D41014"
-
-
 def _tabla(hoja, periodo: str, encabezados: list[str], filas: list[list], moneda: set[int] = frozenset(),
            fechas: set[int] = frozenset()) -> None:
-    hoja.append([ORGANIZACION])
+    hoja.append([colegios.activo().nombre])
     hoja.append([f"{hoja.title} · {periodo}"])
     hoja["A1"].font = Font(bold=True, size=14)
     hoja["A2"].font = Font(italic=True, color="666666")
@@ -152,7 +149,7 @@ def _tabla(hoja, periodo: str, encabezados: list[str], filas: list[list], moneda
     hoja.append(encabezados)
     for celda in hoja[4]:
         celda.font = Font(bold=True, color="FFFFFF")
-        celda.fill = PatternFill("solid", fgColor=ROJO)
+        celda.fill = PatternFill("solid", fgColor=colegios.activo().primario.lstrip("#"))
         celda.alignment = Alignment(horizontal="center")
     for fila in filas:
         hoja.append(fila)

@@ -6,22 +6,20 @@ Sin emojis: Pillow no dibuja emojis a color de forma fiable; se usan formas y co
 
 import io
 import os
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-from arbitros.config import ORGANIZACION
+from arbitros import colegios
 from arbitros.db.models import POSICIONES
 from arbitros.services.rol import AGRUPAR_HORA, OpcionesRol, PartidoEnRol, RolJornada
 from arbitros.services.texto import fecha_larga, sin_acentos
 
 ANCHO = 1080
 MARGEN = 48
-# Colores del Colegio de Árbitros de Coahuila
 NEGRO = (18, 18, 18)
-AMARILLO_MARCA = (254, 193, 6)
-ROJO_MARCA = (212, 16, 20)
 AMARILLO_SUAVE = (255, 243, 205)
 TEXTO = (33, 33, 33)
 GRIS = (110, 110, 110)
@@ -30,7 +28,25 @@ ROJO = (198, 40, 40)
 NOTA = (255, 248, 225)
 BLANCO = (255, 255, 255)
 FONDO = (245, 245, 245)
-LOGO = Path(__file__).resolve().parent.parent / "assets" / "logo.png"
+
+
+def _rgb(hexa: str) -> tuple[int, int, int]:
+    return tuple(int(hexa[i:i + 2], 16) for i in (1, 3, 5))
+
+
+@dataclass(frozen=True)
+class Marca:
+    """Nombre, logo y colores del colegio activo, listos para Pillow."""
+    nombre: str
+    logo: Path
+    fondo: tuple[int, int, int]
+    acento: tuple[int, int, int]
+    primario: tuple[int, int, int]
+
+
+def marca() -> Marca:
+    c = colegios.activo()
+    return Marca(c.nombre, c.ruta_logo, _rgb(c.fondo), _rgb(c.acento), _rgb(c.primario))
 
 
 def _fuente(negrita: bool, tamano: int) -> ImageFont.FreeTypeFont:
@@ -111,6 +127,7 @@ def _componer(l: _Lienzo, rol: RolJornada, opciones: OpcionesRol) -> int:
     f_titulo, f_sub, f_grupo = _fuente(True, 46), _fuente(False, 30), _fuente(True, 30)
     f_hora, f_equipos, f_normal, f_chico = _fuente(True, 38), _fuente(True, 32), _fuente(False, 27), _fuente(False, 22)
     util = ANCHO - 2 * MARGEN
+    m = marca()
 
     # Encabezado: se mide primero para dibujar el fondo verde detrás del texto
     fechas = rol.fechas
@@ -128,22 +145,22 @@ def _componer(l: _Lienzo, rol: RolJornada, opciones: OpcionesRol) -> int:
     def encabezado(lienzo: _Lienzo, y0: int) -> int:
         yy = y0 + 32
         for i, (texto, fuente) in enumerate(lineas_enc):
-            color = BLANCO if i == 0 else AMARILLO_MARCA if i == 1 else BLANCO
+            color = BLANCO if i == 0 else m.acento if i == 1 else BLANCO
             yy += lienzo.texto(x_texto, yy, texto, fuente, color, ANCHO - MARGEN - 32 - x_texto)
         return max(yy + 32 - y0, tam_logo + 64)
 
     y = MARGEN
     alto_enc = encabezado(_Lienzo(None, l.medidor), y)
-    l.caja((MARGEN, y, ANCHO - MARGEN, y + alto_enc), NEGRO)
+    l.caja((MARGEN, y, ANCHO - MARGEN, y + alto_enc), m.fondo)
     if l.d:
         encabezado(l, y)
-        if LOGO.exists():
-            logo = Image.open(LOGO).convert("RGBA").resize((tam_logo, tam_logo), Image.LANCZOS)
+        if m.logo.exists():
+            logo = Image.open(m.logo).convert("RGBA").resize((tam_logo, tam_logo), Image.LANCZOS)
             l.imagen(logo, MARGEN + 32, y + (alto_enc - tam_logo) // 2)
-    # Franja amarilla y roja como en el logo
+    # Franja con los dos colores del logo
     mitad = ANCHO // 2
-    l.rect((MARGEN, y + alto_enc - 10, mitad, y + alto_enc), AMARILLO_MARCA)
-    l.rect((mitad, y + alto_enc - 10, ANCHO - MARGEN, y + alto_enc), ROJO_MARCA)
+    l.rect((MARGEN, y + alto_enc - 10, mitad, y + alto_enc), m.acento)
+    l.rect((mitad, y + alto_enc - 10, ANCHO - MARGEN, y + alto_enc), m.primario)
     y += alto_enc + 32
 
     activos = [p for p in rol.partidos if p.se_juega]
@@ -155,7 +172,7 @@ def _componer(l: _Lienzo, rol: RolJornada, opciones: OpcionesRol) -> int:
     for fecha in sorted({p.fecha for p in activos}):
         del_dia = [p for p in activos if p.fecha == fecha]
         if varias_fechas:
-            y += l.texto(MARGEN, y, fecha_larga(fecha).upper(), f_grupo, ROJO_MARCA, util) + 12
+            y += l.texto(MARGEN, y, fecha_larga(fecha).upper(), f_grupo, m.primario, util) + 12
         if por_hora:
             grupos = [(f"{h:%H:%M}", sorted((p for p in del_dia if p.hora == h), key=lambda p: sin_acentos(p.campo)))
                       for h in sorted({p.hora for p in del_dia})]
@@ -165,7 +182,7 @@ def _componer(l: _Lienzo, rol: RolJornada, opciones: OpcionesRol) -> int:
         for titulo, partidos in grupos:
             alto_titulo = int(f_grupo.size * 1.25)
             l.caja((MARGEN, y, ANCHO - MARGEN, y + alto_titulo + 20), AMARILLO_SUAVE, radio=12)
-            l.rect((MARGEN, y + 6, MARGEN + 8, y + alto_titulo + 14), ROJO_MARCA)
+            l.rect((MARGEN, y + 6, MARGEN + 8, y + alto_titulo + 14), m.primario)
             l.texto(MARGEN + 24, y + 10, titulo, f_grupo, NEGRO, util - 40)
             y += alto_titulo + 20 + 14
             for p in partidos:
@@ -192,7 +209,7 @@ def _componer(l: _Lienzo, rol: RolJornada, opciones: OpcionesRol) -> int:
         l.texto(MARGEN + 24, y + 20, nota, f_normal, TEXTO, util - 48)
         y += alto_nota + 40 + 20
 
-    y += l.texto(MARGEN, y, f"{ORGANIZACION} · Generado el {datetime.now():%d/%m/%Y %H:%M}", f_chico, GRIS, util)
+    y += l.texto(MARGEN, y, f"{m.nombre} · Generado el {datetime.now():%d/%m/%Y %H:%M}", f_chico, GRIS, util)
     return y + MARGEN
 
 
@@ -202,12 +219,13 @@ def _tarjeta(l: _Lienzo, p: PartidoEnRol, y: int, opciones: OpcionesRol, por_hor
     x0, x1 = MARGEN, ANCHO - MARGEN
     col_izq = 150
     ancho_der = x1 - x0 - col_izq - 48
+    primario = marca().primario
 
     def contenido(lienzo: _Lienzo) -> int:
         yy = y + 20
         izquierda = p.campo if por_hora else f"{p.hora:%H:%M}"
         fuente_izq = f_normal if por_hora else f_hora
-        lienzo.texto(x0 + 24, yy, izquierda, fuente_izq, ROJO_MARCA, col_izq - 16)
+        lienzo.texto(x0 + 24, yy, izquierda, fuente_izq, primario, col_izq - 16)
         xd = x0 + 24 + col_izq
         yy += lienzo.texto(xd, yy, p.equipos, f_equipos, TEXTO, ancho_der)
         subtitulo = " · ".join(x for x in (p.categoria, p.modalidad) if x)

@@ -17,7 +17,7 @@ from datetime import date
 
 from sqlalchemy import select
 
-from arbitros.config import ORGANIZACION
+from arbitros import colegios
 from arbitros.db.database import Database
 from arbitros.db.models import FORMAS_PAGO, AbonoEquipo, CobroEquipo, Equipo, Jornada, Liga, Partido
 from arbitros.services.dinero import formatear_monto
@@ -348,5 +348,5 @@ class CobroService:
                    f"*Saldo pendiente: {formatear_monto(r.saldo)}*"]
         if r.a_favor:
             lineas.append(f"*Saldo a favor: {formatear_monto(r.a_favor)}*")
-        lineas += ["", f"_{ORGANIZACION}_"]
+        lineas += ["", f"_{colegios.activo().nombre}_"]
         return "\n".join(lineas)

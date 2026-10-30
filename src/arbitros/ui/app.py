@@ -1,4 +1,4 @@
-"""Orquestador de pantallas: configuración inicial → login → aplicación.
+"""Orquestador de pantallas: elegir colegio → configuración inicial → login → aplicación.
 
 `App` es el único objeto que las vistas reciben: da acceso a la página, los
 servicios y el usuario con sesión iniciada.
@@ -13,9 +13,11 @@ from pathlib import Path
 import flet as ft
 
 from arbitros import __version__
-from arbitros.config import APP_NOMBRE, ORGANIZACION, REPO_ACTUALIZACIONES, Rutas, es_instalada
+from arbitros import colegios
+from arbitros.colegios import Colegio
+from arbitros.config import APP_NOMBRE, REPO_ACTUALIZACIONES, Rutas, es_instalada
 from arbitros.db.database import Database
-from arbitros.db.migrar import migrar
+from arbitros.db.migrar import migrar, necesita_migrar
 from arbitros.db.models import Usuario
 from arbitros.services.arbitros import ArbitroService
 from arbitros.services.auth import AuthService
@@ -39,8 +41,22 @@ CLAVE_TEMA = "tema"
 
 
 class App:
-    def __init__(self, page: ft.Page, rutas: Rutas, db: Database):
+    def __init__(self, page: ft.Page, raiz: Path):
         self.page = page
+        self.raiz = raiz
+        self.colegio: Colegio | None = None
+        self.db: Database | None = None
+        self.usuario: Usuario | None = None
+        # Última liga/jornada vista, para que al cambiar de sección no se pierda la selección
+        self.seleccion: dict = {"liga_id": None, "jornada_id": None}
+        # Servicios de Flet: deben crearse dentro de main() para registrarse en la página
+        self.selector_archivos = ft.FilePicker()
+        self.portapapeles = ft.Clipboard()
+
+    def usar(self, colegio: Colegio, rutas: Rutas, db: Database) -> None:
+        """Deja activo el colegio con su base de datos ya migrada y crea sus servicios."""
+        colegios.activar(colegio)
+        self.colegio = colegio
         self.rutas = rutas
         self.db = db
         self.config = ConfiguracionService(db)
@@ -56,12 +72,7 @@ class App:
         self.cedulas = CedulaService(db, rutas)
         self.cobros = CobroService(db, self.ligas)
         self.reportes = ReporteService(self.pagos, self.cedulas, self.cobros)
-        self.usuario: Usuario | None = None
-        # Última liga/jornada vista, para que al cambiar de sección no se pierda la selección
-        self.seleccion: dict = {"liga_id": None, "jornada_id": None}
-        # Servicios de Flet: deben crearse dentro de main() para registrarse en la página
-        self.selector_archivos = ft.FilePicker()
-        self.portapapeles = ft.Clipboard()
+        self._aplicar_marca()
 
     @property
     def es_admin(self) -> bool:
@@ -71,6 +82,39 @@ class App:
 
     def iniciar(self) -> None:
         self._configurar_ventana()
+        self.ir_a_colegios()
+
+    def ir_a_colegios(self) -> None:
+        from arbitros.ui.vistas.acceso import pantalla_colegios
+
+        self.usuario = None
+        self._mostrar(pantalla_colegios(self))
+
+    def abrir_colegio(self, colegio: Colegio) -> None:
+        """Abre (y migra si hace falta) la base de datos del colegio y va a su login."""
+        rutas = colegio.rutas(self.raiz)
+        try:
+            db = Database.desde_archivo(rutas.db)
+            if necesita_migrar(db):
+                # Nueva versión de la app con cambios en la base de datos: respaldar antes de tocarla
+                respaldo = RespaldoService(db, rutas).crear(prefijo=PREFIJO_ACTUALIZACION)
+                log.info("Respaldo previo a migración (%s): %s", colegio.clave, respaldo)
+            migrar(db)
+        except Exception:
+            log.exception("No se pudo abrir la base de datos de %s", colegio.clave)
+            from arbitros.ui.comunes import avisar
+
+            avisar(self.page, f"No se pudo abrir la base de datos. Revisa {self.raiz / 'arbitros.log'}", error=True)
+            return
+        if self.db is not None and self.db is not db:
+            self.db.cerrar()
+        self.usar(colegio, rutas, db)
+        try:
+            if self.auth.hay_usuarios():
+                self.respaldos.respaldo_automatico_si_toca()
+        except Exception:
+            # Un respaldo fallido no debe impedir abrir la app
+            log.exception("Falló el respaldo automático")
         if self.auth.hay_usuarios():
             self.ir_a_login()
         else:
@@ -162,9 +206,11 @@ class App:
             try:
                 carpeta = Path(tempfile.gettempdir()) / "Arbitros-actualizacion"
                 instalador = Actualizador(REPO_ACTUALIZACIONES, __version__).descargar(info, carpeta, progreso)
-                estado.value = "Respaldando tus datos…"
-                self.page.update()
-                self.respaldos.crear(prefijo=PREFIJO_ACTUALIZACION)
+                if self.db is not None:
+                    # Los demás colegios se respaldan solos al abrirlos si la versión nueva migra
+                    estado.value = "Respaldando tus datos…"
+                    self.page.update()
+                    self.respaldos.crear(prefijo=PREFIJO_ACTUALIZACION)
             except ErrorActualizacion as e:
                 estado.value = str(e)
                 boton_ok.disabled = boton_luego.disabled = False
@@ -211,7 +257,7 @@ class App:
 
     def _configurar_ventana(self) -> None:
         p = self.page
-        p.title = f"{APP_NOMBRE} · {ORGANIZACION}"
+        p.title = APP_NOMBRE
         p.window.width = 1240
         p.window.height = 800
         p.window.min_width = 960
@@ -221,8 +267,18 @@ class App:
         p.locale_configuration = ft.LocaleConfiguration(supported_locales=[espanol], current_locale=espanol)
         p.theme = tema.tema(oscuro=False)
         p.dark_theme = tema.tema(oscuro=True)
-        if tema.RUTA_ICONO.exists():
-            p.window.icon = str(tema.RUTA_ICONO)
+        if colegios.COAHUILA.ruta_icono.exists():
+            p.window.icon = str(colegios.COAHUILA.ruta_icono)
+        p.theme_mode = ft.ThemeMode.LIGHT
+
+    def _aplicar_marca(self) -> None:
+        """Colores, título, icono y modo claro/oscuro del colegio activo."""
+        p = self.page
+        p.title = f"{APP_NOMBRE} · {self.colegio.nombre}"
+        p.theme = tema.tema(oscuro=False)
+        p.dark_theme = tema.tema(oscuro=True)
+        if self.colegio.ruta_icono.exists():
+            p.window.icon = str(self.colegio.ruta_icono)
         oscuro = self.config.obtener(CLAVE_TEMA) == "oscuro"
         p.theme_mode = ft.ThemeMode.DARK if oscuro else ft.ThemeMode.LIGHT
 

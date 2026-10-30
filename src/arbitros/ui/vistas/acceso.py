@@ -1,19 +1,22 @@
-"""Pantallas previas a la sesión: configuración inicial, login y recuperación."""
+"""Pantallas previas a la sesión: elegir colegio, configuración inicial, login y recuperación."""
 
 import flet as ft
 
 from arbitros.ui import filtros
 
 from arbitros import __version__
-from arbitros.config import APP_NOMBRE, ORGANIZACION
+from arbitros.colegios import COLEGIOS, Colegio
+from arbitros.config import APP_NOMBRE
 from arbitros.ui import tema
 from arbitros.services.errores import ErrorAutenticacion, ErrorValidacion
 from arbitros.ui.comunes import ANCHO_DIALOGO, avisar, campo_password, mostrar_errores
 
 ANCHO_TARJETA = 420
+# Gris un poco más claro que el fondo de cada colegio, para que sus tarjetas resalten
+FONDO_COLEGIOS = "#2A2A2A"
 
 
-def _marco(titulo: str, subtitulo: str, controles: list[ft.Control]) -> ft.Control:
+def _marco(titulo: str, subtitulo: str, controles: list[ft.Control], app=None) -> ft.Control:
     """Tarjeta centrada con el logo de la app."""
     cabecera = [
         ft.Text(titulo, size=22, weight=ft.FontWeight.BOLD),
@@ -32,18 +35,21 @@ def _marco(titulo: str, subtitulo: str, controles: list[ft.Control]) -> ft.Contr
         ),
         elevation=4,
     )
+    m = tema.marca()
     marca = [
         tema.logo(120),
-        ft.Text(ORGANIZACION.upper(), size=20, weight=ft.FontWeight.BOLD, color="#FFFFFF",
+        ft.Text(m.nombre.upper(), size=20, weight=ft.FontWeight.BOLD, color="#FFFFFF",
                 text_align=ft.TextAlign.CENTER),
-        ft.Container(height=4, width=160, gradient=ft.LinearGradient(
-            colors=[tema.AMARILLO, tema.AMARILLO, tema.ROJO, tema.ROJO], stops=[0, 0.5, 0.5, 1])),
+        tema.franja(4, 160),
         ft.Container(height=8),
     ]
+    pie = [ft.Text(f"{APP_NOMBRE} · versión {__version__}", size=12, color=tema.TEXTO_MENU)]
+    if app is not None:
+        pie.insert(0, ft.TextButton("Cambiar de colegio", icon=ft.Icons.SWAP_HORIZ,
+                                    style=ft.ButtonStyle(color=m.acento), on_click=lambda _: app.ir_a_colegios()))
     return ft.Container(
         ft.Column(
-            [*marca, tarjeta,
-             ft.Text(f"{APP_NOMBRE} · versión {__version__}", size=12, color=tema.TEXTO_MENU)],
+            [*marca, tarjeta, *pie],
             horizontal_alignment=ft.CrossAxisAlignment.CENTER,
             tight=True,
             scroll=ft.ScrollMode.AUTO,
@@ -51,7 +57,58 @@ def _marco(titulo: str, subtitulo: str, controles: list[ft.Control]) -> ft.Contr
         alignment=ft.Alignment.CENTER,
         expand=True,
         padding=24,
-        bgcolor=tema.NEGRO,
+        bgcolor=m.fondo,
+    )
+
+
+def pantalla_colegios(app) -> ft.Control:
+    """Primera pantalla: cada colegio con su logo y colores; al elegirlo se abre su login."""
+
+    def tarjeta(c: Colegio) -> ft.Control:
+        return ft.Container(
+            ft.Column(
+                [
+                    tema.logo(150, c),
+                    ft.Text(c.titulo, size=16, weight=ft.FontWeight.BOLD, color="#FFFFFF",
+                            text_align=ft.TextAlign.CENTER),
+                    ft.Text(c.subtitulo, size=15, weight=ft.FontWeight.W_600, color=c.acento,
+                            text_align=ft.TextAlign.CENTER),
+                    tema.franja(4, 120, c),
+                ],
+                horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                spacing=8,
+                tight=True,
+            ),
+            bgcolor=c.fondo,
+            border=ft.Border.all(2, c.acento),
+            border_radius=16,
+            padding=24,
+            width=280,
+            height=320,
+            alignment=ft.Alignment.CENTER,
+            ink=True,
+            tooltip=f"Entrar a {c.nombre}",
+            on_click=lambda _, c=c: app.abrir_colegio(c),
+        )
+
+    return ft.Container(
+        ft.Column(
+            [
+                ft.Text("Elige tu colegio", size=26, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
+                ft.Container(height=12),
+                ft.Row([tarjeta(c) for c in COLEGIOS], wrap=True, spacing=24, run_spacing=24,
+                       alignment=ft.MainAxisAlignment.CENTER),
+                ft.Container(height=12),
+                ft.Text(f"{APP_NOMBRE} · versión {__version__}", size=12, color=tema.TEXTO_MENU),
+            ],
+            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+            tight=True,
+            scroll=ft.ScrollMode.AUTO,
+        ),
+        alignment=ft.Alignment.CENTER,
+        expand=True,
+        padding=24,
+        bgcolor=FONDO_COLEGIOS,
     )
 
 
@@ -90,7 +147,7 @@ def pantalla_login(app, mensaje: str | None = None) -> ft.Control:
     ]
     if mensaje:
         controles.insert(0, ft.Text(mensaje, color=ft.Colors.PRIMARY, text_align=ft.TextAlign.CENTER))
-    return _marco("Iniciar sesión", "Escribe tu usuario y contraseña.", controles)
+    return _marco("Iniciar sesión", "Escribe tu usuario y contraseña.", controles, app)
 
 
 def pantalla_configuracion_inicial(app) -> ft.Control:
@@ -131,6 +188,7 @@ def pantalla_configuracion_inicial(app) -> ft.Control:
             error,
             ft.FilledButton("Crear usuario y entrar", icon=ft.Icons.CHECK, on_click=crear, width=ANCHO_TARJETA),
         ],
+        app,
     )
 
 

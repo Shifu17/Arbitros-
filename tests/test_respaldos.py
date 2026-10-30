@@ -35,6 +35,15 @@ def test_crear_y_restaurar(db, rutas, svc):
     assert (rutas.documentos / "cedulas" / "c1.pdf").read_bytes() == b"pdf"
 
 
+def test_rechaza_respaldo_de_otro_colegio(svc):
+    from arbitros import colegios
+
+    zip_ = svc.crear()
+    colegios.activar(colegios.SALTILLO)
+    with pytest.raises(ErrorValidacion, match="Coahuila"):
+        svc.restaurar(zip_)
+
+
 def test_rechaza_zip_ajeno(tmp_path, svc):
     malo = tmp_path / "otro.zip"
     with zipfile.ZipFile(malo, "w") as z:

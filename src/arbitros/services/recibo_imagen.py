@@ -5,13 +5,11 @@ from datetime import datetime
 
 from PIL import Image, ImageDraw
 
-from arbitros.config import ORGANIZACION
 from arbitros.db.models import FORMAS_PAGO
 from arbitros.services.cobros import LineaCobro, ReciboEquipo
 from arbitros.services.dinero import formatear_monto
 from arbitros.services.rol_imagen import (
-    AMARILLO_MARCA, AMARILLO_SUAVE, ANCHO, BLANCO, BORDE, FONDO, GRIS, LOGO, MARGEN, NEGRO, ROJO, ROJO_MARCA,
-    TEXTO, _fuente, _Lienzo,
+    AMARILLO_SUAVE, ANCHO, BLANCO, BORDE, FONDO, GRIS, MARGEN, NEGRO, ROJO, TEXTO, _fuente, _Lienzo, marca,
 )
 from arbitros.services.texto import fecha_larga
 
@@ -52,6 +50,7 @@ def _componer(l: _Lienzo, r: ReciboEquipo) -> int:
     f_titulo, f_sub, f_grupo = _fuente(True, 46), _fuente(False, 30), _fuente(True, 30)
     f_normal, f_negrita, f_chico = _fuente(False, 27), _fuente(True, 27), _fuente(False, 22)
     util = ANCHO - 2 * MARGEN
+    m = marca()
 
     lineas_enc = [("RECIBO DE ARBITRAJES", f_sub), (r.equipo.nombre.upper(), f_titulo),
                   (r.liga.nombre, f_sub), (r.periodo, f_sub)]
@@ -61,21 +60,21 @@ def _componer(l: _Lienzo, r: ReciboEquipo) -> int:
     def encabezado(lienzo: _Lienzo, y0: int) -> int:
         yy = y0 + 32
         for i, (texto, fuente) in enumerate(lineas_enc):
-            color = AMARILLO_MARCA if i == 0 else BLANCO
+            color = m.acento if i == 0 else BLANCO
             yy += lienzo.texto(x_texto, yy, texto, fuente, color, ANCHO - MARGEN - 32 - x_texto)
         return max(yy + 32 - y0, tam_logo + 64)
 
     y = MARGEN
     alto_enc = encabezado(_Lienzo(None, l.medidor), y)
-    l.caja((MARGEN, y, ANCHO - MARGEN, y + alto_enc), NEGRO)
+    l.caja((MARGEN, y, ANCHO - MARGEN, y + alto_enc), m.fondo)
     if l.d:
         encabezado(l, y)
-        if LOGO.exists():
-            logo = Image.open(LOGO).convert("RGBA").resize((tam_logo, tam_logo), Image.LANCZOS)
+        if m.logo.exists():
+            logo = Image.open(m.logo).convert("RGBA").resize((tam_logo, tam_logo), Image.LANCZOS)
             l.imagen(logo, MARGEN + 32, y + (alto_enc - tam_logo) // 2)
     mitad = ANCHO // 2
-    l.rect((MARGEN, y + alto_enc - 10, mitad, y + alto_enc), AMARILLO_MARCA)
-    l.rect((mitad, y + alto_enc - 10, ANCHO - MARGEN, y + alto_enc), ROJO_MARCA)
+    l.rect((MARGEN, y + alto_enc - 10, mitad, y + alto_enc), m.acento)
+    l.rect((mitad, y + alto_enc - 10, ANCHO - MARGEN, y + alto_enc), m.primario)
     y += alto_enc + 32
 
     if not r.lineas:
@@ -85,7 +84,7 @@ def _componer(l: _Lienzo, r: ReciboEquipo) -> int:
 
     if r.abonos:
         y += 10
-        y += l.texto(MARGEN, y, "PAGOS ADELANTADOS", f_grupo, ROJO_MARCA, util) + 8
+        y += l.texto(MARGEN, y, "PAGOS ADELANTADOS", f_grupo, m.primario, util) + 8
         alto_linea = int(f_normal.size * 1.35)
         alto_caja = 20 + sum(alto_linea + (int(f_chico.size * 1.25) if a.nota else 0) for a in r.abonos) + 16
         l.caja((MARGEN, y, ANCHO - MARGEN, y + alto_caja), BLANCO, BORDE)
@@ -107,7 +106,7 @@ def _componer(l: _Lienzo, r: ReciboEquipo) -> int:
     alto_fila = int(f_grupo.size * 1.5)
     alto_tot = 24 + alto_fila * (len(filas) + 1) + 24
     l.caja((MARGEN, y, ANCHO - MARGEN, y + alto_tot), AMARILLO_SUAVE, radio=12)
-    l.rect((MARGEN, y + 6, MARGEN + 8, y + alto_tot - 6), ROJO_MARCA)
+    l.rect((MARGEN, y + 6, MARGEN + 8, y + alto_tot - 6), m.primario)
     yy = y + 24
     for texto, monto, color in filas:
         l.texto(MARGEN + 32, yy, texto, f_normal, TEXTO, util)
@@ -118,7 +117,7 @@ def _componer(l: _Lienzo, r: ReciboEquipo) -> int:
     _derecha(l, ANCHO - MARGEN - 32, yy, saldo_txt, f_grupo, ROJO if r.saldo else VERDE)
     y += alto_tot + 24
 
-    y += l.texto(MARGEN, y, f"{ORGANIZACION} · Generado el {datetime.now():%d/%m/%Y %H:%M}", f_chico, GRIS, util)
+    y += l.texto(MARGEN, y, f"{m.nombre} · Generado el {datetime.now():%d/%m/%Y %H:%M}", f_chico, GRIS, util)
     return y + MARGEN
 
 

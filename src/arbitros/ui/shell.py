@@ -10,7 +10,6 @@ from typing import Callable
 
 import flet as ft
 
-from arbitros.config import ORGANIZACION
 from arbitros.ui import tema
 
 from arbitros.ui.vistas import arbitros as vista_arbitros
@@ -78,7 +77,7 @@ class Shell:
             destinations=[
                 ft.NavigationRailDestination(
                     icon=ft.Icon(s.icono, color=tema.TEXTO_MENU),
-                    selected_icon=ft.Icon(s.icono_activo, color=tema.NEGRO),
+                    selected_icon=ft.Icon(s.icono_activo, color=tema.marca().fondo),
                     label=s.titulo,
                 )
                 for s in self.secciones
@@ -107,14 +106,15 @@ class Shell:
 
     def _cabecera_menu(self) -> ft.Control:
         u = self.app.usuario
-        nombre_corto, _, resto = ORGANIZACION.partition(" de Árbitros ")
+        m = tema.marca()
         return ft.Container(
             ft.Column(
                 [
                     tema.logo(96),
-                    ft.Text(f"{nombre_corto} de Árbitros", size=15, weight=ft.FontWeight.BOLD, color="#FFFFFF",
+                    ft.Text(m.titulo, size=15, weight=ft.FontWeight.BOLD, color="#FFFFFF",
                             text_align=ft.TextAlign.CENTER),
-                    ft.Text(resto, size=13, weight=ft.FontWeight.W_600, color=tema.AMARILLO),
+                    ft.Text(m.subtitulo, size=13, weight=ft.FontWeight.W_600, color=m.acento,
+                            text_align=ft.TextAlign.CENTER),
                     ft.Text(
                         f"{u.nombre} · {'Administrador' if u.es_admin else 'Consulta'}",
                         size=12,

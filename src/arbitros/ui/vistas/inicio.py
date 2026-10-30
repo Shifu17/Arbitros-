@@ -5,7 +5,6 @@ from datetime import date, timedelta
 import flet as ft
 
 from arbitros import __version__
-from arbitros.config import ORGANIZACION
 from arbitros.services.dinero import formatear_monto
 from arbitros.services.jornadas import etiqueta_jornada
 from arbitros.services.texto import DIAS, MESES, fecha_larga
@@ -58,11 +57,12 @@ class VistaInicio:
     def _bienvenida(self) -> ft.Control:
         nombre = self.app.usuario.nombre.split()[0]
         hoy = f"{DIAS[self.hoy.weekday()]} {self.hoy.day} de {MESES[self.hoy.month - 1]}"
+        m = tema.marca()
         acciones = []
         if self.app.es_admin:
             acciones = [
                 ft.FilledButton("Asignar árbitros", icon=ft.Icons.PERSON_ADD_ALT_1,
-                                style=ft.ButtonStyle(bgcolor=tema.AMARILLO, color=tema.NEGRO),
+                                style=ft.ButtonStyle(bgcolor=m.acento, color=m.fondo),
                                 on_click=lambda _: self.shell.ir_a("jornadas")),
                 ft.OutlinedButton("Generar rol", icon=ft.Icons.SEND,
                                   style=ft.ButtonStyle(color="#FFFFFF", side=ft.BorderSide(1, "#FFFFFF")),
@@ -77,7 +77,7 @@ class VistaInicio:
                             ft.Column(
                                 [
                                     ft.Text(f"Hola, {nombre}", size=28, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
-                                    ft.Text(f"{ORGANIZACION} · {hoy}", color=tema.AMARILLO),
+                                    ft.Text(f"{m.nombre} · {hoy}", color=m.acento),
                                 ],
                                 spacing=2,
                                 expand=True,
@@ -87,12 +87,11 @@ class VistaInicio:
                         spacing=20,
                         vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     ),
-                    ft.Container(height=6, border_radius=3, gradient=ft.LinearGradient(
-                        colors=[tema.AMARILLO, tema.AMARILLO, tema.ROJO, tema.ROJO], stops=[0, 0.5, 0.5, 1])),
+                    tema.franja(6, border_radius=3),
                 ],
                 spacing=16,
             ),
-            bgcolor=tema.NEGRO,
+            bgcolor=m.fondo,
             border_radius=16,
             padding=ft.Padding.only(left=24, right=24, top=20, bottom=16),
         )

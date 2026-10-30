@@ -126,6 +126,20 @@ def test_imagen_png(ctx):
     assert png_hora[:4] == b"\x89PNG"
 
 
+def test_imagen_con_la_marca_del_colegio(ctx):
+    from io import BytesIO
+
+    from PIL import Image
+
+    from arbitros import colegios
+
+    datos = ctx["rol"].datos(ctx["j"].id, OpcionesRol())
+    colegios.activar(colegios.SALTILLO)
+    imagen = Image.open(BytesIO(generar_png(datos, OpcionesRol()))).convert("RGB")
+    # El encabezado se pinta con el azul marino de Saltillo, no con el negro de Coahuila
+    assert imagen.getpixel((60, 60)) == (0x0B, 0x1F, 0x4B)
+
+
 def test_partido_de_bardas_en_rol(ctx):
     p = ctx["p2"]
     ctx["jornadas"].actualizar_partido(p.id, DatosPartido(SAB, p.hora, p.local_id, p.visitante_id, p.campo_id,

@@ -1,7 +1,8 @@
 """Rutas de datos de la aplicación.
 
 Los datos viven fuera de la carpeta del programa (en %APPDATA%\\Arbitros) para que
-reinstalar o actualizar la app nunca toque la información del usuario.
+reinstalar o actualizar la app nunca toque la información del usuario. Cada colegio
+tiene su propia carpeta dentro de esa raíz (ver `colegios.py`).
 La variable de entorno ARBITROS_DATA_DIR permite usar otra carpeta (desarrollo/pruebas).
 """
 
@@ -11,7 +12,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 APP_NOMBRE = "Árbitros"
-ORGANIZACION = "Colegio de Árbitros de Coahuila"
 # Repositorio PÚBLICO de GitHub donde se publican los instaladores (GitHub Releases).
 # Puede ser un repositorio solo de instaladores, distinto del código. Ver docs/publicar.md
 REPO_ACTUALIZACIONES = os.environ.get("ARBITROS_REPO_ACTUALIZACIONES", "Shifu17/arbitros-releases")
@@ -46,9 +46,11 @@ class Rutas:
         return self
 
 
-def rutas_por_defecto() -> Rutas:
+def raiz_datos() -> Path:
     override = os.environ.get("ARBITROS_DATA_DIR")
     if override:
-        return Rutas(Path(override)).crear()
-    appdata = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
-    return Rutas(Path(appdata) / "Arbitros").crear()
+        raiz = Path(override)
+    else:
+        raiz = Path(os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")) / "Arbitros"
+    raiz.mkdir(parents=True, exist_ok=True)
+    return raiz

@@ -1,7 +1,7 @@
 """Respaldos en ZIP de la base de datos y los documentos (cédulas).
 
 Formato del ZIP:
-    manifest.json      versión de la app y fecha
+    manifest.json      versión de la app, fecha y colegio
     arbitros.db        copia consistente de SQLite (API de backup)
     documentos/...     archivos adjuntos
 """
@@ -18,7 +18,7 @@ from pathlib import Path, PurePosixPath
 from alembic.script import ScriptDirectory
 from alembic.util.exc import CommandError
 
-from arbitros import __version__
+from arbitros import __version__, colegios
 from arbitros.config import Rutas
 from arbitros.db.database import Database
 from arbitros.db.migrar import configuracion_alembic
@@ -59,7 +59,8 @@ class RespaldoService:
         with tempfile.TemporaryDirectory() as tmp:
             copia_db = Path(tmp) / "arbitros.db"
             self._copiar_sqlite(self.rutas.db, copia_db)
-            manifest = {"app": "arbitros", "version": __version__, "fecha": ahora.isoformat()}
+            manifest = {"app": "arbitros", "version": __version__, "fecha": ahora.isoformat(),
+                        "colegio": colegios.activo().clave}
             with zipfile.ZipFile(archivo, "w", zipfile.ZIP_DEFLATED) as z:
                 z.writestr("manifest.json", json.dumps(manifest, indent=2))
                 z.write(copia_db, "arbitros.db")
@@ -129,6 +130,11 @@ class RespaldoService:
                 raise ErrorValidacion("El respaldo está dañado (manifest).")
             if manifest.get("app") != "arbitros":
                 raise ErrorValidacion("El archivo no es un respaldo de Árbitros.")
+            # Los respaldos de antes de haber varios colegios son todos de Coahuila
+            origen = colegios.por_clave(manifest.get("colegio", colegios.COAHUILA.clave))
+            if origen != colegios.activo():
+                nombre = origen.nombre if origen else "otro colegio"
+                raise ErrorValidacion(f"Este respaldo es de {nombre}; entra a ese colegio para restaurarlo.")
             z.extractall(destino)
         self._validar_version_db(destino / "arbitros.db")
 

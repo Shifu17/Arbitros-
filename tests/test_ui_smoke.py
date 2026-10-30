@@ -13,6 +13,7 @@ import pytest
 
 from datetime import date, time
 
+from arbitros import colegios
 from arbitros.db.models import DISP_HORARIO, ROL_CONSULTA, TIPO_TORNEO
 from arbitros.services.disponibilidad import DatosDisponibilidad
 from arbitros.services.arbitros import DatosArbitro
@@ -65,7 +66,8 @@ class PaginaFalsa:
 
 @pytest.fixture
 def app(db, rutas):
-    a = App(PaginaFalsa(), rutas, db)
+    a = App(PaginaFalsa(), rutas.base)
+    a.usar(colegios.COAHUILA, rutas, db)
     a.auth.crear_admin_inicial("admin", "Coordinador General", "secreta1")
     a.usuario = a.auth.autenticar("admin", "secreta1")
     a.arbitros.crear(DatosArbitro(nombre="Juan Pérez", telefono="3312345678"))
@@ -152,6 +154,25 @@ def test_flujo_login(app):
     assert app.usuario.es_admin
 
 
+def test_elegir_colegio(tmp_path):
+    a = App(PaginaFalsa(), tmp_path)
+    a.iniciar()
+    validar_arbol(a.page.controls[-1])
+    # Un colegio nuevo arranca con su propia base vacía, en su carpeta, y pide crear el admin
+    a.abrir_colegio(colegios.SALTILLO)
+    assert colegios.activo() is colegios.SALTILLO
+    assert a.rutas.base == tmp_path / "colegios" / "saltillo" and a.rutas.db.exists()
+    assert not a.auth.hay_usuarios()
+    assert "Saltillo" in a.page.title
+    a.auth.crear_admin_inicial("admin", "Admin Saltillo", "secreta1")
+    a.entrar(a.auth.autenticar("admin", "secreta1"))
+    validar_arbol(a.page.controls[-1])
+    # Coahuila sigue usando la carpeta de siempre y no ve los usuarios de Saltillo
+    a.abrir_colegio(colegios.COAHUILA)
+    assert a.rutas.base == tmp_path and not a.auth.hay_usuarios()
+    a.db.cerrar()
+
+
 def test_ligas_y_jornadas(app):
     shell = Shell(app)
     shell.construir()
@@ -197,7 +218,8 @@ def test_ligas_y_jornadas(app):
 
 
 def test_jornadas_sin_ligas(db, rutas):
-    a = App(PaginaFalsa(), rutas, db)
+    a = App(PaginaFalsa(), rutas.base)
+    a.usar(colegios.COAHUILA, rutas, db)
     a.auth.crear_admin_inicial("admin", "Admin", "secreta1")
     a.usuario = a.auth.autenticar("admin", "secreta1")
     shell = Shell(a)
