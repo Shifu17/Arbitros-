@@ -22,7 +22,7 @@ Remove-Item -Recurse -Force "build", "dist\Arbitros" -ErrorAction SilentlyContin
 $env:PYTHONPATH = "src"
 & $python -m flet.cli pack packaging\arbitros_app.py `
     --name Arbitros `
-    --icon src\arbitros\assets\logo.ico `
+    --icon src\arbitros\assets\logo_arbitros.ico `
     --onedir `
     --distpath dist `
     --product-name "Árbitros" `

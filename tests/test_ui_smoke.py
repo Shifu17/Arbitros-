@@ -5,6 +5,7 @@ No dibuja nada; detecta parámetros inválidos de Flet y errores al armar las vi
 
 import dataclasses
 import sqlite3
+from pathlib import Path
 from types import SimpleNamespace
 
 import flet as ft
@@ -187,6 +188,24 @@ def test_elegir_colegio(tmp_path):
     # Coahuila sigue usando la carpeta de siempre y no ve los usuarios de Saltillo
     a.abrir_colegio(colegios.COAHUILA)
     assert a.rutas.base == tmp_path and not a.auth.hay_usuarios()
+    a.db.cerrar()
+
+
+def test_icono_y_titulo_segun_colegio(tmp_path):
+    a = App(PaginaFalsa(), tmp_path)
+    a.iniciar()
+    assert Path(a.page.window.icon).exists()
+
+    def marca():
+        return Path(a.page.window.icon).name, a.page.title
+
+    general = ("logo_arbitros.ico", "Árbitros")
+    assert marca() == general
+    for colegio, icono in ((colegios.SALTILLO, "logo_saltillo.ico"), (colegios.COAHUILA, "logo.ico")):
+        a.abrir_colegio(colegio)
+        assert marca() == (icono, f"Árbitros · {colegio.nombre}")
+        a.ir_a_colegios()  # "Cambiar de colegio" vuelve al logo general
+        assert marca() == general
     a.db.cerrar()
 
 

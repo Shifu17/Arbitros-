@@ -94,6 +94,7 @@ def pantalla_colegios(app) -> ft.Control:
     return ft.Container(
         ft.Column(
             [
+                tema.logo_app(96),
                 ft.Text("Elige tu colegio", size=26, weight=ft.FontWeight.BOLD, color="#FFFFFF"),
                 ft.Container(height=12),
                 ft.Row([tarjeta(c) for c in COLEGIOS], wrap=True, spacing=24, run_spacing=24,

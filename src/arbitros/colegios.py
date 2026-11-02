@@ -11,6 +11,9 @@ from pathlib import Path
 from arbitros.config import Rutas
 
 CARPETA_ASSETS = Path(__file__).resolve().parent / "assets"
+# Logo general de la app, para cuando todavía no se elige colegio
+LOGO_APP = CARPETA_ASSETS / "logo_arbitros.png"
+ICONO_APP = CARPETA_ASSETS / "logo_arbitros.ico"
 
 
 @dataclass(frozen=True)

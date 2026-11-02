@@ -90,6 +90,7 @@ class App:
         from arbitros.ui.vistas.acceso import pantalla_colegios
 
         self.usuario = None
+        self._aplicar_marca_general()
         self._mostrar(pantalla_colegios(self))
 
     def abrir_colegio(self, colegio: Colegio) -> None:
@@ -281,9 +282,13 @@ class App:
         p.locale_configuration = ft.LocaleConfiguration(supported_locales=[espanol], current_locale=espanol)
         p.theme = tema.tema(oscuro=False)
         p.dark_theme = tema.tema(oscuro=True)
-        if colegios.COAHUILA.ruta_icono.exists():
-            p.window.icon = str(colegios.COAHUILA.ruta_icono)
         p.theme_mode = ft.ThemeMode.LIGHT
+
+    def _aplicar_marca_general(self) -> None:
+        """Título e icono de la app mientras no hay un colegio elegido."""
+        self.page.title = APP_NOMBRE
+        if colegios.ICONO_APP.exists():
+            self.page.window.icon = str(colegios.ICONO_APP)
 
     def _aplicar_marca(self) -> None:
         """Colores, título, icono y modo claro/oscuro del colegio activo."""

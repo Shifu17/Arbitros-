@@ -45,6 +45,11 @@ def logo(tamano: int, colegio: Colegio | None = None) -> ft.Image:
     return ft.Image(src=_logo_bytes((colegio or marca()).ruta_logo), width=tamano, height=tamano)
 
 
+def logo_app(tamano: int) -> ft.Image:
+    """Logo general de la app, sin marca de ningún colegio."""
+    return ft.Image(src=_logo_bytes(colegios.LOGO_APP), width=tamano, height=tamano)
+
+
 def franja(alto: int, ancho: int | None = None, colegio: Colegio | None = None, **kwargs) -> ft.Container:
     """Línea de dos colores (acento | primario) que acompaña al logo."""
     c = colegio or marca()
