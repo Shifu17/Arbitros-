@@ -16,6 +16,10 @@ from arbitros.db.database import Database
 CARPETA_MIGRACIONES = Path(__file__).parent / "migrations"
 
 
+class BaseDeDatosMasNueva(Exception):
+    """La base de datos ya pasó por una versión de la app más nueva que esta."""
+
+
 def configuracion_alembic(db: Database) -> Config:
     cfg = Config()
     cfg.set_main_option("script_location", str(CARPETA_MIGRACIONES))
@@ -30,7 +34,12 @@ def migrar(db: Database) -> None:
     con las llaves foráneas activas eso falla si otras tablas la referencian (p. ej. partidos →
     equipos). Por eso se desactivan durante la migración y al final se verifica que todo
     siga consistente antes de confirmar.
+
+    Lanza `BaseDeDatosMasNueva`, sin tocar nada, si esta versión de la app no conoce la
+    revisión de la base de datos.
     """
+    if es_mas_nueva(db):
+        raise BaseDeDatosMasNueva(revision_actual(db))
     cfg = configuracion_alembic(db)
     with db.engine.connect() as conexion:
         crudo = conexion.connection.dbapi_connection
@@ -60,8 +69,21 @@ def revision_actual(db: Database) -> str | None:
         return MigrationContext.configure(conexion).get_current_revision()
 
 
+def es_mas_nueva(db: Database) -> bool:
+    """True si la revisión de la base de datos no existe en esta versión de la app.
+
+    Las migraciones nunca se eliminan, así que una revisión desconocida solo puede venir
+    de una versión posterior.
+    """
+    actual = revision_actual(db)
+    if actual is None:
+        return False
+    script = ScriptDirectory.from_config(configuracion_alembic(db))
+    return actual not in {r.revision for r in script.walk_revisions()}
+
+
 def necesita_migrar(db: Database) -> bool:
     """True si hay datos existentes con una versión anterior del esquema."""
     actual = revision_actual(db)
     head = ScriptDirectory.from_config(configuracion_alembic(db)).get_current_head()
-    return actual is not None and actual != head
+    return actual is not None and actual != head and not es_mas_nueva(db)

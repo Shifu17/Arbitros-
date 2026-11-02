@@ -1,4 +1,5 @@
 import json
+import sqlite3
 import zipfile
 from datetime import datetime, timedelta
 
@@ -7,7 +8,14 @@ import pytest
 from alembic import command
 
 from arbitros.db.database import Database
-from arbitros.db.migrar import configuracion_alembic, migrar, necesita_migrar, revision_actual
+from arbitros.db.migrar import (
+    BaseDeDatosMasNueva,
+    configuracion_alembic,
+    es_mas_nueva,
+    migrar,
+    necesita_migrar,
+    revision_actual,
+)
 from arbitros.services.arbitros import ArbitroService, DatosArbitro
 from arbitros.services.errores import ErrorValidacion
 from arbitros.services.respaldos import MAX_AUTOMATICOS, RespaldoService
@@ -91,4 +99,24 @@ def test_necesita_migrar(tmp_path):
     assert necesita_migrar(db)
     migrar(db)
     assert not necesita_migrar(db)
+    db.cerrar()
+
+
+def test_base_mas_nueva_que_la_app(tmp_path):
+    ruta = tmp_path / "x.db"
+    db = Database.desde_archivo(ruta)
+    migrar(db)
+    assert not es_mas_nueva(db)
+    db.cerrar()
+    con = sqlite3.connect(ruta)
+    con.execute("UPDATE alembic_version SET version_num = '9999'")
+    con.commit()
+    con.close()
+
+    db = Database.desde_archivo(ruta)
+    assert es_mas_nueva(db)
+    assert not necesita_migrar(db)  # no hay nada que respaldar: esta versión no puede migrarla
+    with pytest.raises(BaseDeDatosMasNueva):
+        migrar(db)
+    assert revision_actual(db) == "9999"
     db.cerrar()

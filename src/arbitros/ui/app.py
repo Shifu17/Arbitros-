@@ -17,7 +17,7 @@ from arbitros import colegios
 from arbitros.colegios import Colegio
 from arbitros.config import APP_NOMBRE, REPO_ACTUALIZACIONES, Rutas, es_instalada
 from arbitros.db.database import Database
-from arbitros.db.migrar import migrar, necesita_migrar
+from arbitros.db.migrar import BaseDeDatosMasNueva, migrar, necesita_migrar
 from arbitros.db.models import Usuario
 from arbitros.services.arbitros import ArbitroService
 from arbitros.services.auth import AuthService
@@ -102,6 +102,18 @@ class App:
                 respaldo = RespaldoService(db, rutas).crear(prefijo=PREFIJO_ACTUALIZACION)
                 log.info("Respaldo previo a migración (%s): %s", colegio.clave, respaldo)
             migrar(db)
+        except BaseDeDatosMasNueva as e:
+            db.cerrar()
+            log.warning("Datos de %s en la revisión %s, más nueva que la app %s", colegio.clave, e, __version__)
+            from arbitros.ui.comunes import avisar
+
+            avisar(
+                self.page,
+                f"Los datos de {colegio.nombre} son de una versión más nueva de la app. "
+                f"Actualiza {APP_NOMBRE} para abrirlos; tus datos no se modificaron.",
+                error=True,
+            )
+            return
         except Exception:
             log.exception("No se pudo abrir la base de datos de %s", colegio.clave)
             from arbitros.ui.comunes import avisar

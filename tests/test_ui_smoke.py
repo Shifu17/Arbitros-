@@ -4,6 +4,7 @@ No dibuja nada; detecta parámetros inválidos de Flet y errores al armar las vi
 """
 
 import dataclasses
+import sqlite3
 from types import SimpleNamespace
 
 import flet as ft
@@ -187,6 +188,30 @@ def test_elegir_colegio(tmp_path):
     a.abrir_colegio(colegios.COAHUILA)
     assert a.rutas.base == tmp_path and not a.auth.hay_usuarios()
     a.db.cerrar()
+
+
+def test_abrir_colegio_con_datos_mas_nuevos(tmp_path):
+    """Sin respaldos de más y con un mensaje que dice qué hacer, en cada intento."""
+    a = App(PaginaFalsa(), tmp_path)
+    a.abrir_colegio(colegios.SALTILLO)
+    a.db.cerrar()
+    ruta = a.rutas.db
+    con = sqlite3.connect(ruta)
+    con.execute("UPDATE alembic_version SET version_num = '9999'")
+    con.commit()
+    con.close()
+
+    b = App(PaginaFalsa(), tmp_path)
+    for intento in (1, 2):
+        b.abrir_colegio(colegios.SALTILLO)
+        assert len(b.page.dialogos) == intento
+    mensaje = b.page.dialogos[-1].content.value
+    assert "más nueva" in mensaje and "Actualiza" in mensaje
+    assert b.db is None and b.usuario is None
+    assert not list(a.rutas.respaldos.glob("*.zip"))
+    con = sqlite3.connect(ruta)
+    assert con.execute("SELECT version_num FROM alembic_version").fetchone()[0] == "9999"
+    con.close()
 
 
 def test_ligas_y_jornadas(app):
