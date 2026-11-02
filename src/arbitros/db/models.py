@@ -412,6 +412,7 @@ class CobroEquipo(Base):
     fecha_pago: Mapped[date | None] = mapped_column(Date)
     forma_pago: Mapped[str | None] = mapped_column(String(20))
     nota: Mapped[str | None] = mapped_column(String(250))
+    comprobante: Mapped[str | None] = mapped_column(String(255))  # relativa a la carpeta de documentos
     creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
@@ -427,6 +428,7 @@ class AbonoEquipo(Base):
     monto_centavos: Mapped[int] = mapped_column(Integer)
     forma_pago: Mapped[str | None] = mapped_column(String(20))
     nota: Mapped[str | None] = mapped_column(String(250))
+    comprobante: Mapped[str | None] = mapped_column(String(255))  # relativa a la carpeta de documentos
     creado_en: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     equipo: Mapped["Equipo"] = relationship(lazy="joined")

@@ -10,18 +10,23 @@
 - Pagos adelantados (`AbonoEquipo`): dinero que un equipo dejó antes (o de antes de usar la app).
   No se guarda a qué partido se aplicó: se calcula cada vez, cubriendo lo que debe en sus partidos
   en orden de fecha; lo que sobra es saldo a favor. Así, borrar o cancelar algo lo reacomoda solo.
+- Comprobantes: foto o PDF del pago en `documentos/comprobantes/`, así queda en los respaldos; en
+  la base solo va la ruta relativa. Se borra junto con el pago.
 """
 
 from dataclasses import dataclass, field
 from datetime import date
+from pathlib import Path
 
 from sqlalchemy import select
 
 from arbitros import colegios
+from arbitros.config import Rutas
 from arbitros.db.database import Database
 from arbitros.db.models import FORMAS_PAGO, AbonoEquipo, CobroEquipo, Equipo, Jornada, Liga, Partido
 from arbitros.services.dinero import formatear_monto
 from arbitros.services.errores import ErrorValidacion
+from arbitros.services.imagenes import copiar_pdf, es_pdf, guardar_comprobante
 from arbitros.services.jornadas import etiqueta_jornada
 from arbitros.services.ligas import LigaService
 from arbitros.services.texto import fecha_larga, sin_acentos
@@ -42,6 +47,7 @@ class LineaCobro:
     forma_pago: str | None = None
     nota: str | None = None
     abonado: int = 0  # cubierto con pagos adelantados
+    comprobante: str | None = None
 
     @property
     def saldo(self) -> int:
@@ -95,9 +101,10 @@ class ReciboEquipo:
 
 
 class CobroService:
-    def __init__(self, db: Database, ligas: LigaService):
+    def __init__(self, db: Database, ligas: LigaService, rutas: Rutas):
         self.db = db
         self.ligas = ligas
+        self.rutas = rutas
 
     # --- Consultas -------------------------------------------------------------
 
@@ -178,6 +185,7 @@ class CobroService:
                     p, liga, etiqueta_jornada(liga, jornada), equipo, rival, es_local, cuota, fija,
                     c.pagado_centavos if c else 0, c.fecha_pago if c else None,
                     c.forma_pago if c else None, c.nota if c else None,
+                    comprobante=c.comprobante if c else None,
                 ))
         resultado.sort(key=lambda l: (l.partido.fecha, l.partido.hora, not l.es_local))
         return resultado
@@ -284,10 +292,13 @@ class CobroService:
             return s.get(AbonoEquipo, abono_id)
 
     def eliminar_abono(self, abono_id: int) -> None:
+        comprobante = None
         with self.db.sesion() as s:
             abono = s.get(AbonoEquipo, abono_id)
             if abono:
+                comprobante = abono.comprobante
                 s.delete(abono)
+        self._borrar_archivo(comprobante)
 
     def pago_completo(self, claves: list[tuple[int, int]], fecha: date | None = None,
                       forma_pago: str | None = None) -> int:
@@ -304,11 +315,68 @@ class CobroService:
 
     def deshacer(self, partido_id: int, equipo_id: int) -> None:
         """Borra lo registrado: el equipo vuelve a deber su arbitraje normal."""
+        comprobante = None
         with self.db.sesion() as s:
             c = s.scalar(select(CobroEquipo).where(CobroEquipo.partido_id == partido_id,
                                                    CobroEquipo.equipo_id == equipo_id))
             if c:
+                comprobante = c.comprobante
                 s.delete(c)
+        self._borrar_archivo(comprobante)
+
+    # --- Comprobantes --------------------------------------------------------
+
+    def ruta_comprobante(self, relativa: str | None) -> Path | None:
+        """Ruta absoluta del comprobante, o None si no hay o ya no existe."""
+        if not relativa:
+            return None
+        ruta = self.rutas.documentos / relativa
+        return ruta if ruta.is_file() else None
+
+    def guardar_comprobante(self, partido_id: int, equipo_id: int, origen: Path) -> None:
+        """Foto o PDF del comprobante de un pago ya registrado (reemplaza el anterior)."""
+        with self.db.sesion() as s:
+            c = s.scalar(select(CobroEquipo).where(CobroEquipo.partido_id == partido_id,
+                                                   CobroEquipo.equipo_id == equipo_id))
+            if not c:
+                raise ErrorValidacion("Primero registra el pago.")
+            self._guardar_comprobante(c, origen, f"comprobantes/cobro_{c.id}")
+
+    def quitar_comprobante(self, partido_id: int, equipo_id: int) -> None:
+        comprobante = None
+        with self.db.sesion() as s:
+            c = s.scalar(select(CobroEquipo).where(CobroEquipo.partido_id == partido_id,
+                                                   CobroEquipo.equipo_id == equipo_id))
+            if c:
+                comprobante, c.comprobante = c.comprobante, None
+        self._borrar_archivo(comprobante)
+
+    def guardar_comprobante_abono(self, abono_id: int, origen: Path) -> None:
+        with self.db.sesion() as s:
+            abono = s.get(AbonoEquipo, abono_id)
+            if not abono:
+                raise ErrorValidacion("El pago adelantado ya no existe.")
+            self._guardar_comprobante(abono, origen, f"comprobantes/abono_{abono.id}")
+
+    def quitar_comprobante_abono(self, abono_id: int) -> None:
+        comprobante = None
+        with self.db.sesion() as s:
+            abono = s.get(AbonoEquipo, abono_id)
+            if abono:
+                comprobante, abono.comprobante = abono.comprobante, None
+        self._borrar_archivo(comprobante)
+
+    def _guardar_comprobante(self, registro: CobroEquipo | AbonoEquipo, origen: Path, base: str) -> None:
+        relativa = f"{base}.pdf" if es_pdf(origen) else f"{base}.jpg"
+        guardar = copiar_pdf if es_pdf(origen) else guardar_comprobante
+        guardar(origen, self.rutas.documentos / relativa)
+        if registro.comprobante != relativa:  # p. ej. antes era foto y ahora es PDF
+            self._borrar_archivo(registro.comprobante)
+        registro.comprobante = relativa
+
+    def _borrar_archivo(self, relativa: str | None) -> None:
+        if relativa:
+            (self.rutas.documentos / relativa).unlink(missing_ok=True)
 
     def _linea(self, partido_id: int, equipo_id: int) -> LineaCobro:
         with self.db.sesion() as s:

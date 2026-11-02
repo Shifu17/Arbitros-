@@ -31,6 +31,7 @@ class Colegio:
     titulo_rol: str = "Rol arbitral"  # encabezado del rol (texto de WhatsApp e imagen)
     fotos_arbitros: bool = False  # foto de cada árbitro en la imagen del rol
     logo_liga: bool = False  # la imagen del rol lleva el logo de la liga en vez del del colegio
+    comprobantes_cobro: bool = False  # foto del comprobante en los pagos de los equipos
 
     @property
     def ruta_logo(self) -> Path:
@@ -73,6 +74,7 @@ SALTILLO = Colegio(
     titulo_rol="Designación arbitral",
     fotos_arbitros=True,
     logo_liga=True,
+    comprobantes_cobro=True,
 )
 
 COLEGIOS = (COAHUILA, SALTILLO)

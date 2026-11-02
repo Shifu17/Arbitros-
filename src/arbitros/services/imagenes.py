@@ -4,6 +4,7 @@ Se guardan ya ajustadas como PNG en `documentos/fotos/` y `documentos/logos/` de
 la carpeta de datos, así quedan en los respaldos; en la base solo va la ruta relativa.
 """
 
+import shutil
 from pathlib import Path
 
 from PIL import Image, ImageOps, UnidentifiedImageError
@@ -17,6 +18,7 @@ EXTENSIONES = ["jpg", "jpeg", "png", "webp"]
 TAMANO_MAXIMO = 25 * 1024 * 1024
 LADO_FOTO = 400
 LADO_LOGO = 400
+LADO_COMPROBANTE = 2000  # grande para que se pueda leer; es lo que prueba el pago
 
 
 def abrir_imagen(origen: Path) -> Image.Image:
@@ -33,6 +35,36 @@ def abrir_imagen(origen: Path) -> Image.Image:
         raise ErrorValidacion("No se pudo leer la imagen.")
     # Las fotos del celular traen la orientación aparte (EXIF)
     return ImageOps.exif_transpose(im).convert("RGBA")
+
+
+def es_pdf(ruta: Path) -> bool:
+    return ruta.suffix.lower() == ".pdf"
+
+
+def validar_pdf(origen: Path) -> None:
+    if not origen.is_file():
+        raise ErrorValidacion("No se encontró el PDF.")
+    if origen.stat().st_size > TAMANO_MAXIMO:
+        raise ErrorValidacion("El PDF pesa más de 25 MB.")
+    with origen.open("rb") as f:
+        if f.read(5) != b"%PDF-":
+            raise ErrorValidacion("No se pudo leer el PDF.")
+
+
+def copiar_pdf(origen: Path, destino: Path) -> None:
+    validar_pdf(origen)
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(origen, destino)
+
+
+def guardar_comprobante(origen: Path, destino: Path) -> None:
+    """Guarda la foto completa (sin recortar) como JPG, reducida si es muy grande."""
+    im = abrir_imagen(origen)
+    im.thumbnail((LADO_COMPROBANTE, LADO_COMPROBANTE), Image.LANCZOS)
+    lienzo = Image.new("RGB", im.size, "white")
+    lienzo.paste(im, mask=im)
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    lienzo.save(destino, format="JPEG", quality=85, optimize=True)
 
 
 class ImagenService:

@@ -2,6 +2,7 @@ from datetime import date, time, timedelta
 
 import openpyxl
 import pytest
+from PIL import Image
 
 from arbitros.db.models import ESTADO_CANCELADO
 from arbitros.services.arbitros import ArbitroService, DatosArbitro
@@ -49,7 +50,7 @@ def ctx(db, rutas):
     for p in (p1, p2, p3):
         asig.asignar(p.id, "central", juan.id, forzar=True)
     asig.asignar(p1.id, "asistente_1", ana.id, forzar=True)
-    return dict(ligas=ligas, jornadas=jornadas, pagos=pagos, cedulas=cedulas, cobros=CobroService(db, ligas),
+    return dict(ligas=ligas, jornadas=jornadas, pagos=pagos, cedulas=cedulas, cobros=CobroService(db, ligas, rutas),
                 rutas=rutas, liga=liga, j1=j1,
                 p1=p1, p2=p2, p3=p3, juan=juan, ana=ana, premier=premier)
 
@@ -252,6 +253,87 @@ def test_registrar_pago_de_equipo_y_congelar_cuota(ctx):
     assert _cobro(ctx, p1).saldo == 0 and _cobro(ctx, p1).cuota == 90000
     cob.deshacer(p1.id, tigres.id)
     assert _cobro(ctx, p1).pagado == 0 and not _cobro(ctx, p1).cuota_fija and _cobro(ctx, p1).cuota == 50000
+
+
+def _foto(tmp_path, nombre="comprobante.png", tamano=(3000, 1500)):
+    ruta = tmp_path / nombre
+    Image.new("RGB", tamano, "blue").save(ruta)
+    return ruta
+
+
+def test_comprobante_de_pago_de_equipo(ctx, tmp_path):
+    _arbitraje(ctx)
+    cob, p1, documentos = ctx["cobros"], ctx["p1"], ctx["rutas"].documentos
+    tigres = _cobro(ctx, p1).equipo
+    with pytest.raises(ErrorValidacion):
+        cob.guardar_comprobante(p1.id, tigres.id, _foto(tmp_path))  # aún no hay pago registrado
+    cob.registrar(p1.id, tigres.id, 45000)
+    cob.guardar_comprobante(p1.id, tigres.id, _foto(tmp_path))
+    relativa = _cobro(ctx, p1).comprobante
+    ruta = cob.ruta_comprobante(relativa)
+    assert ruta.parent == documentos / "comprobantes"
+    with Image.open(ruta) as im:
+        assert im.format == "JPEG" and im.size == (2000, 1000)  # reducida, sin recortar
+    # Corregir el pago no pierde el comprobante
+    cob.registrar(p1.id, tigres.id, 20000)
+    assert _cobro(ctx, p1).comprobante == relativa
+    cob.quitar_comprobante(p1.id, tigres.id)
+    assert _cobro(ctx, p1).comprobante is None and not ruta.exists()
+    cob.guardar_comprobante(p1.id, tigres.id, _foto(tmp_path))
+    assert ruta.exists()
+    cob.deshacer(p1.id, tigres.id)
+    assert _cobro(ctx, p1).comprobante is None and not ruta.exists()
+    no_imagen = tmp_path / "x.png"
+    no_imagen.write_bytes(b"no soy imagen")
+    cob.registrar(p1.id, tigres.id, 100)
+    with pytest.raises(ErrorValidacion):
+        cob.guardar_comprobante(p1.id, tigres.id, no_imagen)
+    assert _cobro(ctx, p1).comprobante is None
+
+
+def test_comprobante_de_pago_adelantado(ctx, tmp_path):
+    cob, p1 = ctx["cobros"], ctx["p1"]
+    abono = cob.registrar_abono(p1.local_id, 10000)
+    cob.guardar_comprobante_abono(abono.id, _foto(tmp_path, tamano=(800, 600)))
+    relativa = cob.abonos()[0].comprobante
+    ruta = cob.ruta_comprobante(relativa)
+    with Image.open(ruta) as im:
+        assert im.size == (800, 600)
+    cob.quitar_comprobante_abono(abono.id)
+    assert cob.abonos()[0].comprobante is None and not ruta.exists()
+    cob.guardar_comprobante_abono(abono.id, _foto(tmp_path))
+    cob.eliminar_abono(abono.id)
+    assert not ruta.exists() and cob.ruta_comprobante(relativa) is None
+
+
+def test_comprobante_en_pdf(ctx, tmp_path):
+    _arbitraje(ctx)
+    cob, p1 = ctx["cobros"], ctx["p1"]
+    tigres = _cobro(ctx, p1).equipo
+    cob.registrar(p1.id, tigres.id, 45000)
+    pdf = tmp_path / "Transferencia.PDF"
+    pdf.write_bytes(b"%PDF-1.7 contenido")
+    # Foto -> PDF: no queda el archivo anterior
+    cob.guardar_comprobante(p1.id, tigres.id, _foto(tmp_path))
+    foto = cob.ruta_comprobante(_cobro(ctx, p1).comprobante)
+    cob.guardar_comprobante(p1.id, tigres.id, pdf)
+    guardado = cob.ruta_comprobante(_cobro(ctx, p1).comprobante)
+    assert guardado.suffix == ".pdf" and guardado.read_bytes() == pdf.read_bytes() and not foto.exists()
+    # Un PDF que no lo es no sustituye al que ya estaba
+    falso = tmp_path / "falso.pdf"
+    falso.write_bytes(b"no soy pdf")
+    with pytest.raises(ErrorValidacion):
+        cob.guardar_comprobante(p1.id, tigres.id, falso)
+    assert _cobro(ctx, p1).comprobante and guardado.read_bytes() == pdf.read_bytes()
+    # PDF -> foto, y borrar con el pago
+    cob.guardar_comprobante(p1.id, tigres.id, _foto(tmp_path))
+    assert not guardado.exists() and _cobro(ctx, p1).comprobante.endswith(".jpg")
+    cob.guardar_comprobante(p1.id, tigres.id, pdf)
+    cob.deshacer(p1.id, tigres.id)
+    assert not guardado.exists()
+    abono = cob.registrar_abono(p1.local_id, 10000)
+    cob.guardar_comprobante_abono(abono.id, pdf)
+    assert cob.abonos()[0].comprobante.endswith(".pdf")
 
 
 def test_pago_completo_y_resumen_por_equipo(ctx):

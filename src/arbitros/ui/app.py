@@ -72,7 +72,7 @@ class App:
         self.pagos = PagoService(db, self.ligas)
         self.cedulas = CedulaService(db, rutas)
         self.imagenes = ImagenService(db, rutas)
-        self.cobros = CobroService(db, self.ligas)
+        self.cobros = CobroService(db, self.ligas, rutas)
         self.reportes = ReporteService(self.pagos, self.cedulas, self.cobros)
         self._aplicar_marca()
 

@@ -13,6 +13,8 @@ import pytest
 
 from datetime import date, time
 
+from PIL import Image
+
 from arbitros import colegios
 from arbitros.db.models import DISP_HORARIO, ROL_CONSULTA, TIPO_TORNEO
 from arbitros.services.disponibilidad import DatosDisponibilidad
@@ -306,6 +308,28 @@ def test_pagos_cedulas_reportes(app, tmp_path):
     pe._dialogo_registrar(next(x for x in app.cobros.lineas() if x.abonado))
     app.cobros.registrar(l.partido.id, l.equipo.id, 100, forma_pago="efectivo", nota="Parcial")
     pe.refrescar()
+    # Comprobantes: solo el colegio que los usa ofrece subirlos; verlos, quien lo tenga guardado
+    assert pe._selector_comprobante(None) is None
+    colegios.activar(colegios.SALTILLO)
+    foto_pago = tmp_path / "pago.png"
+    Image.new("RGB", (40, 40), "blue").save(foto_pago)
+    app.cobros.guardar_comprobante(l.partido.id, l.equipo.id, foto_pago)
+    abono_con_foto = app.cobros.abonos()[0]
+    pdf_pago = tmp_path / "pago.pdf"
+    pdf_pago.write_bytes(b"%PDF-1.7 prueba")
+    app.cobros.guardar_comprobante_abono(abono_con_foto.id, pdf_pago)
+    pe.refrescar()
+    linea_con_foto = next(x for x in app.cobros.lineas() if x.comprobante)
+    pe._dialogo_registrar(linea_con_foto)
+    pe._dialogo_abono()
+    pe._dialogo_comprobante_abono(app.cobros.abonos()[0])  # con PDF
+    selector = pe._selector_comprobante(None)
+    assert selector._problema(pdf_pago) is None and selector._problema(foto_pago) is None
+    (tmp_path / "falso.pdf").write_bytes(b"no")
+    assert selector._problema(tmp_path / "falso.pdf")
+    pe._deshacer(linea_con_foto)
+    pe._ver_comprobante("comprobantes/no_existe.jpg")
+    colegios.activar(colegios.COAHUILA)
     app.usuario = SimpleNamespace(nombre="Consulta", es_admin=False, rol=ROL_CONSULTA)
     pe.refrescar()
     app.usuario = app.auth.autenticar("admin", "secreta1")

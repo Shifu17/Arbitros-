@@ -1,11 +1,13 @@
 """Cobro del arbitraje a los equipos (pestaña de Pagos) y su recibo desglosado."""
 
 import logging
+import os
 from datetime import date
 from pathlib import Path
 
 import flet as ft
 
+from arbitros import colegios
 from arbitros.db.models import FORMAS_PAGO
 from arbitros.services.cobros import LineaCobro, ReciboEquipo
 from arbitros.services.dinero import a_centavos, formatear_monto, monto_editable
@@ -16,6 +18,7 @@ from arbitros.ui import filtros, tema
 from arbitros.ui.comunes import (
     ANCHO_DIALOGO,
     CampoFecha,
+    SelectorImagen,
     avisar,
     confirmar,
     estado_vacio,
@@ -185,6 +188,33 @@ class PanelEquipos:
                 tarjeta(ft.Row([self._tabla(lineas)], scroll=ft.ScrollMode.AUTO)),
             ]
 
+    # --- Comprobantes --------------------------------------------------------
+
+    def _selector_comprobante(self, actual: str | None) -> SelectorImagen | None:
+        """Selector de la foto o PDF del comprobante; None si este colegio no los usa."""
+        if not colegios.activo().comprobantes_cobro:
+            return None
+        return SelectorImagen(self.app, "Comprobante de pago (foto o PDF)", self.app.cobros.ruta_comprobante(actual),
+                              False, ft.Icons.RECEIPT_LONG, permite_pdf=True)
+
+    def _aplicar_comprobante(self, selector: SelectorImagen | None, guardar, quitar) -> bool:
+        """Guarda lo elegido en el selector. El pago ya quedó registrado, aunque esto falle."""
+        if not selector:
+            return True
+        try:
+            selector.aplicar(guardar, quitar)
+        except ErrorValidacion as e:
+            avisar(self.page, f"El pago se registró, pero no se guardó el comprobante: {e.mensaje}", error=True)
+            return False
+        return True
+
+    def _ver_comprobante(self, relativa: str) -> None:
+        ruta = self.app.cobros.ruta_comprobante(relativa)
+        if not ruta:
+            avisar(self.page, "No se encontró el comprobante en la carpeta de documentos.", error=True)
+            return
+        os.startfile(ruta)
+
     # --- Pagos adelantados ---------------------------------------------------
 
     def _abonos(self) -> list[ft.Control]:
@@ -206,7 +236,13 @@ class PanelEquipos:
         filas = []
         for a in abonos:
             acciones = []
+            if a.comprobante:
+                acciones.append(ft.IconButton(ft.Icons.ATTACH_FILE, tooltip="Ver comprobante",
+                                              on_click=lambda _, a=a: self._ver_comprobante(a.comprobante)))
             if self.app.es_admin:
+                if colegios.activo().comprobantes_cobro:
+                    acciones.append(ft.IconButton(ft.Icons.ADD_A_PHOTO, tooltip="Subir o cambiar comprobante…",
+                                                  on_click=lambda _, a=a: self._dialogo_comprobante_abono(a)))
                 acciones.append(ft.IconButton(ft.Icons.DELETE_OUTLINE, tooltip="Borrar este pago adelantado",
                                               on_click=lambda _, a=a: self._borrar_abono(a)))
             favor = a_favor.get(a.equipo_id, 0)
@@ -245,6 +281,7 @@ class PanelEquipos:
             + [ft.DropdownOption(key=k, text=v) for k, v in FORMAS_PAGO.items()],
         )
         nota = ft.TextField(label="Nota (opcional)", hint_text="Ej.: pagó la inscripción con 5 arbitrajes")
+        comprobante = self._selector_comprobante(None)
 
         def guardar(_):
             equipo.error_text = None if equipo.value else "Elige un equipo"
@@ -257,15 +294,19 @@ class PanelEquipos:
                 self.page.update()
                 return
             try:
-                self.app.cobros.registrar_abono(int(equipo.value), centavos, fecha.valor,
-                                                None if forma.value == SIN_FORMA else forma.value, nota.value or "")
+                abono = self.app.cobros.registrar_abono(int(equipo.value), centavos, fecha.valor,
+                                                        None if forma.value == SIN_FORMA else forma.value,
+                                                        nota.value or "")
             except ErrorValidacion as e:
                 mostrar_errores({"monto": monto}, e.campos)
                 avisar(self.page, e.mensaje, error=True)
                 self.page.update()
                 return
             self.page.pop_dialog()
-            avisar(self.page, f"Pago adelantado de {formatear_monto(centavos)} registrado.")
+            if self._aplicar_comprobante(comprobante,
+                                         lambda ruta: self.app.cobros.guardar_comprobante_abono(abono.id, ruta),
+                                         lambda: self.app.cobros.quitar_comprobante_abono(abono.id)):
+                avisar(self.page, f"Pago adelantado de {formatear_monto(centavos)} registrado.")
             self.refrescar()
 
         self.page.show_dialog(ft.AlertDialog(
@@ -276,8 +317,37 @@ class PanelEquipos:
                          color=ft.Colors.ON_SURFACE_VARIANT),
                  ft.Row([equipo, monto], spacing=12, wrap=True),
                  ft.Row([fecha.campo, forma], spacing=12, wrap=True),
-                 nota],
+                 nota,
+                 *([comprobante.control] if comprobante else [])],
                 tight=True, spacing=12, width=ANCHO_DIALOGO + 80,
+            ),
+            actions=[
+                ft.TextButton("Cancelar", on_click=lambda _: self.page.pop_dialog()),
+                ft.FilledButton("Guardar", icon=ft.Icons.SAVE, on_click=guardar),
+            ],
+        ))
+
+    def _dialogo_comprobante_abono(self, abono) -> None:
+        comprobante = self._selector_comprobante(abono.comprobante)
+
+        def guardar(_):
+            self.page.pop_dialog()
+            try:
+                comprobante.aplicar(lambda ruta: self.app.cobros.guardar_comprobante_abono(abono.id, ruta),
+                                    lambda: self.app.cobros.quitar_comprobante_abono(abono.id))
+            except ErrorValidacion as e:
+                avisar(self.page, e.mensaje, error=True)
+                return
+            self.refrescar()
+
+        self.page.show_dialog(ft.AlertDialog(
+            modal=True,
+            title=ft.Text(f"Comprobante · {abono.equipo.nombre}"),
+            content=ft.Column(
+                [ft.Text(f"Pago adelantado de {formatear_monto(abono.monto_centavos)} del {abono.fecha:%d/%m/%Y}",
+                         weight=ft.FontWeight.W_500),
+                 comprobante.control],
+                tight=True, spacing=12, width=ANCHO_DIALOGO,
             ),
             actions=[
                 ft.TextButton("Cancelar", on_click=lambda _: self.page.pop_dialog()),
@@ -293,7 +363,8 @@ class PanelEquipos:
 
         confirmar(self.page, "Borrar pago adelantado",
                   f"Se borrará el pago adelantado de {formatear_monto(abono.monto_centavos)} de {abono.equipo.nombre} "
-                  f"del {abono.fecha:%d/%m/%Y}; los partidos que cubría volverán a quedar pendientes.",
+                  f"del {abono.fecha:%d/%m/%Y}; los partidos que cubría volverán a quedar pendientes."
+                  + (" También se borrará su comprobante." if abono.comprobante else ""),
                   aplicar, "Borrar")
 
     def _tabla(self, lineas: list[LineaCobro]) -> ft.Control:
@@ -302,6 +373,9 @@ class PanelEquipos:
             p = l.partido
             acciones = [ft.IconButton(ft.Icons.RECEIPT_LONG, tooltip="Recibo de esta jornada",
                                       on_click=lambda _, l=l: self._recibo(l))]
+            if l.comprobante:
+                acciones.append(ft.IconButton(ft.Icons.ATTACH_FILE, tooltip="Ver comprobante",
+                                              on_click=lambda _, l=l: self._ver_comprobante(l.comprobante)))
             if self.app.es_admin:
                 if l.saldo:
                     acciones.insert(0, ft.IconButton(ft.Icons.DONE, tooltip="Pagó completo",
@@ -356,7 +430,8 @@ class PanelEquipos:
             self.refrescar()
 
         confirmar(self.page, "Deshacer pago",
-                  f"Se borrará lo registrado de {l.equipo.nombre} en este partido y volverá a deber su cuota normal.",
+                  f"Se borrará lo registrado de {l.equipo.nombre} en este partido y volverá a deber su cuota normal."
+                  + (" También se borrará su comprobante." if l.comprobante else ""),
                   aplicar, "Deshacer")
 
     def _dialogo_registrar(self, l: LineaCobro) -> None:
@@ -371,6 +446,7 @@ class PanelEquipos:
             + [ft.DropdownOption(key=k, text=v) for k, v in FORMAS_PAGO.items()],
         )
         nota = ft.TextField(label="Nota (opcional)", value=l.nota or "", hint_text="Ej.: pagó el delegado")
+        comprobante = self._selector_comprobante(l.comprobante)
         p = l.partido
 
         def guardar(_):
@@ -392,7 +468,10 @@ class PanelEquipos:
                 self.page.update()
                 return
             self.page.pop_dialog()
-            avisar(self.page, f"Pago de {l.equipo.nombre} registrado.")
+            if self._aplicar_comprobante(comprobante,
+                                         lambda ruta: self.app.cobros.guardar_comprobante(p.id, l.equipo.id, ruta),
+                                         lambda: self.app.cobros.quitar_comprobante(p.id, l.equipo.id)):
+                avisar(self.page, f"Pago de {l.equipo.nombre} registrado.")
             self.refrescar()
 
         self.page.show_dialog(ft.AlertDialog(
@@ -405,7 +484,8 @@ class PanelEquipos:
                             color=tema.EXITO_TEXTO)] if l.abonado else []),
                  ft.Row([cuota, pagado], spacing=12, wrap=True),
                  ft.Row([fecha.campo, forma], spacing=12, wrap=True),
-                 nota],
+                 nota,
+                 *([comprobante.control] if comprobante else [])],
                 tight=True, spacing=12, width=ANCHO_DIALOGO + 40,
             ),
             actions=[

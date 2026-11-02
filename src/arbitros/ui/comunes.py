@@ -146,14 +146,17 @@ class SelectorImagen:
 
     No guarda nada al elegir: el formulario llama a `aplicar()` después de guardar el
     registro (así también sirve al crear uno nuevo, que aún no tiene id).
+    Con `permite_pdf` también acepta un PDF (se muestra su ícono en lugar de la vista previa).
     """
 
     LADO = 96
 
-    def __init__(self, app, titulo: str, actual: Path | None, redonda: bool, icono, editable: bool = True):
+    def __init__(self, app, titulo: str, actual: Path | None, redonda: bool, icono, editable: bool = True,
+                 permite_pdf: bool = False):
         self.app = app
         self.titulo = titulo
         self.redonda = redonda
+        self.permite_pdf = permite_pdf
         self.elegida: Path | None = None
         self.quitada = False
         self.icono = icono
@@ -166,7 +169,8 @@ class SelectorImagen:
                                           visible=editable and actual is not None)
         self.error = ft.Text("", color=ft.Colors.ERROR, size=12, visible=False)
         self._mostrar(actual)
-        botones = ft.Row([ft.OutlinedButton("Elegir imagen", icon=ft.Icons.IMAGE, on_click=self._elegir),
+        botones = ft.Row([ft.OutlinedButton("Elegir archivo" if permite_pdf else "Elegir imagen", icon=ft.Icons.IMAGE,
+                                            on_click=self._elegir),
                           self.boton_quitar], wrap=True, spacing=4, visible=editable)
         self.control = ft.Row(
             [self.vista, ft.Column([ft.Text(titulo, weight=ft.FontWeight.W_500), botones, self.error],
@@ -175,6 +179,15 @@ class SelectorImagen:
         )
 
     def _mostrar(self, ruta: Path | None) -> None:
+        from arbitros.services.imagenes import es_pdf
+
+        if ruta and es_pdf(ruta):
+            self.vista.content = ft.Column(
+                [ft.Icon(ft.Icons.PICTURE_AS_PDF, size=40, color=ft.Colors.ON_SURFACE_VARIANT),
+                 ft.Text(ruta.name, size=10, max_lines=2, overflow=ft.TextOverflow.ELLIPSIS,
+                         text_align=ft.TextAlign.CENTER)],
+                tight=True, spacing=2, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
+            return
         previa = _vista_previa(ruta, self.LADO * 2, recortar=self.redonda) if ruta else None
         self.vista.content = (ft.Image(src=previa, width=self.LADO, height=self.LADO, fit=ft.BoxFit.COVER)
                               if previa else ft.Icon(self.icono, size=44, color=ft.Colors.ON_SURFACE_VARIANT))
@@ -182,19 +195,36 @@ class SelectorImagen:
     async def _elegir(self, _) -> None:
         from arbitros.services.imagenes import EXTENSIONES
 
+        extensiones = [*EXTENSIONES, "pdf"] if self.permite_pdf else EXTENSIONES
         archivos = await self.app.selector_archivos.pick_files(
-            dialog_title=self.titulo, file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=EXTENSIONES)
+            dialog_title=self.titulo, file_type=ft.FilePickerFileType.CUSTOM, allowed_extensions=extensiones)
         rutas = [Path(a.path) for a in archivos or [] if a.path]
         if not rutas:
             return
-        if _vista_previa(rutas[0], 8) is None:
-            self.error.value, self.error.visible = "No se pudo leer esa imagen.", True
+        problema = self._problema(rutas[0])
+        if problema:
+            self.error.value, self.error.visible = problema, True
         else:
             self.elegida, self.quitada = rutas[0], False
             self.error.visible = False
             self.boton_quitar.visible = True
             self._mostrar(rutas[0])
         self.app.page.update()
+
+    def _problema(self, ruta: Path) -> str | None:
+        """Qué tiene de malo el archivo elegido; None si se puede usar."""
+        from arbitros.services.errores import ErrorValidacion
+        from arbitros.services.imagenes import es_pdf, validar_pdf
+
+        if not es_pdf(ruta):
+            return None if _vista_previa(ruta, 8) else "No se pudo leer esa imagen."
+        if not self.permite_pdf:
+            return "Elige una imagen."
+        try:
+            validar_pdf(ruta)
+        except ErrorValidacion as e:
+            return e.mensaje
+        return None
 
     def _quitar(self, _) -> None:
         self.elegida, self.quitada = None, True
